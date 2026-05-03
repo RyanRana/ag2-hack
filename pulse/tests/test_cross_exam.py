@@ -16,7 +16,7 @@ from pulse.cross_exam import (
 )
 from pulse.cross_exam_groupchat import CrossExamGroupChat
 from pulse.latent import CONDITION_LABELS, FieldLatentState, PlantInstance
-from pulse.llm_config import LLMKeyMissingError
+from pulse.llm_config import LLMKeyMissingError  # noqa: F401 — kept for reference
 from pulse.messages import ConstraintMessage
 
 
@@ -116,11 +116,12 @@ def test_groupchat_picks_unspoken_agent_first():
 # --- Skeptic agent --------------------------------------------------------
 
 
-def test_skeptic_requires_llm_key(monkeypatch):
+def test_skeptic_graceful_without_llm_key(monkeypatch):
+    """Skeptic agent now handles missing keys gracefully (sets llm_config=False)."""
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    with pytest.raises(LLMKeyMissingError):
-        SkepticAgent()
+    agent = SkepticAgent()
+    assert agent.name == "skeptic"
 
 
 def test_skeptic_records_typed_hypothesis():

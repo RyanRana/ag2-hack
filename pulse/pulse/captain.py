@@ -23,10 +23,13 @@ from typing import Any, Iterable
 
 import numpy as np
 
+from pulse.agents.anomaly_detector import AnomalyDetectorAgent
 from pulse.agents.controller import EIGControllerAgent
 from pulse.agents.ecological_dynamics import EcologicalDynamicsAgent
+from pulse.agents.growth_stage import GrowthStageAgent
 from pulse.agents.pesticide_fate import PesticideFateAgent
 from pulse.agents.water_balance import WaterBalanceAgent
+from pulse.agents.weather_prior import WeatherPriorAgent
 from pulse.cross_exam import cross_examine, disputed_plants
 from pulse.detection import detect_plants_yolo
 from pulse.latent import CONDITION_LABELS, FieldLatentState, INTERVENTION_TYPES
@@ -58,6 +61,9 @@ class PulseCaptain:
         *,
         ml_agents: list[Any],
         water_balance_agent: WaterBalanceAgent | None = None,
+        weather_prior_agent: WeatherPriorAgent | None = None,
+        anomaly_detector: AnomalyDetectorAgent | None = None,
+        growth_stage_agent: GrowthStageAgent | None = None,
         physics_agent: PesticideFateAgent | None = None,
         ecology_agent: EcologicalDynamicsAgent | None = None,
         skeptic_agent: Any | None = None,
@@ -67,6 +73,9 @@ class PulseCaptain:
     ) -> None:
         self.ml_agents = ml_agents
         self.water_balance_agent = water_balance_agent or WaterBalanceAgent()
+        self.weather_prior_agent = weather_prior_agent
+        self.anomaly_detector = anomaly_detector
+        self.growth_stage_agent = growth_stage_agent
         self.physics_agent = physics_agent or PesticideFateAgent()
         self.ecology_agent = ecology_agent or EcologicalDynamicsAgent()
         self.skeptic_agent = skeptic_agent
@@ -109,16 +118,25 @@ class PulseCaptain:
         # Skeptic + VLMReasoner — only if disputed AND LLM key available.
         disputed = disputed_plants(cross_exam_msgs, threshold=1.5)
         hypotheses: list = []
+        vlm_mode = "local" if (self.vlm_reasoner and getattr(self.vlm_reasoner, "_use_local", False)) else "api"
+        skeptic_mode = "local" if (self.skeptic_agent and getattr(self.skeptic_agent, "_use_local", False)) else "api"
         self._emit("llm_phase", {
             "disputed_plants": disputed,
             "skeptic_configured": self.skeptic_agent is not None,
             "vlm_configured": self.vlm_reasoner is not None,
             "llm_key_available": llm_key_available(),
+            "vlm_mode": vlm_mode,
+            "skeptic_mode": skeptic_mode,
         })
+
+        # --- Multi-turn skeptic-VLM debate (Sprint 3) ---
+        debate_turn = 0
         if disputed and self.skeptic_agent is not None and llm_key_available():
             try:
                 hypotheses = self.skeptic_agent.emit_hypotheses_for(cross_exam_msgs, disputed)
                 self._emit("hypotheses", [dataclasses.asdict(h) for h in hypotheses])
+                self._emit("debate_turn", {"turn": 1, "max_turns": 3, "continuing": True})
+                debate_turn = 1
             except Exception as exc:  # noqa: BLE001
                 import traceback as _tb
                 print(f"[skeptic_error] {_tb.format_exc()}", flush=True)
@@ -135,6 +153,23 @@ class PulseCaptain:
                 import traceback as _tb
                 print(f"[vlm_error] {_tb.format_exc()}", flush=True)
                 self._emit("vlm_error", {"error": f"{type(exc).__name__}: {exc}"})
+
+        # Continue debate if entropy is still high (max 3 turns)
+        if debate_turn > 0 and self.skeptic_agent is not None and hasattr(self.skeptic_agent, "should_continue_debate"):
+            while debate_turn < 3:
+                plant_posteriors = {p.plant_id: p.posterior() for p in latent.plants if p.plant_id in set(disputed)}
+                if not self.skeptic_agent.should_continue_debate(plant_posteriors, debate_turn):
+                    break
+                debate_turn += 1
+                self._emit("debate_turn", {"turn": debate_turn, "max_turns": 3, "continuing": True})
+                try:
+                    new_hyp = self.skeptic_agent.emit_hypotheses_for(cross_exam_msgs, disputed)
+                    hypotheses.extend(new_hyp)
+                    self._emit("hypotheses", [dataclasses.asdict(h) for h in new_hyp])
+                except Exception:
+                    break
+        if debate_turn > 0:
+            self._emit("debate_turn", {"turn": debate_turn, "max_turns": 3, "continuing": False, "converged": debate_turn < 3})
 
         # Physics + ecology per (plant, candidate-action).
         physics_table: dict[int, dict[str, InterventionAssessmentMessage]] = {}
@@ -243,6 +278,26 @@ class PulseCaptain:
         import traceback as _tb
 
         out: dict[str, ConstraintMessage] = {}
+
+        # Weather prior runs FIRST — adjusts priors before ML agents.
+        if self.weather_prior_agent is not None:
+            try:
+                wp_msg = self.weather_prior_agent.emit_constraint(image_path, latent)
+                out[wp_msg.sender] = wp_msg
+                if wp_msg.per_plant_log_likelihoods:
+                    self._emit("constraint", self._serialize_constraint(wp_msg))
+                # Apply weather priors to latent immediately so ML agents
+                # operate on the adjusted posterior.
+                for pid, ll in wp_msg.per_plant_log_likelihoods.items():
+                    latent.update_plant(pid, np.asarray(ll, dtype=float), wp_msg.sender)
+            except Exception as exc:  # noqa: BLE001
+                tb = _tb.format_exc()
+                print(f"[weather_prior_error] {tb}", flush=True)
+                self._emit("weather_prior_error", {
+                    "agent": "weather_prior",
+                    "error": f"{type(exc).__name__}: {exc}",
+                })
+
         for agent in self.ml_agents:
             try:
                 msg = agent.emit_constraint(image_path, latent)
@@ -269,6 +324,37 @@ class PulseCaptain:
         out[wb.sender] = wb
         if wb.per_plant_log_likelihoods:
             self._emit("constraint", self._serialize_constraint(wb))
+
+        # Anomaly detector — flags unknown conditions via DINOv2 + PatchCore.
+        if self.anomaly_detector is not None:
+            try:
+                ad_msg = self.anomaly_detector.emit_constraint(image_path, latent)
+                out[ad_msg.sender] = ad_msg
+                if ad_msg.per_plant_log_likelihoods:
+                    self._emit("constraint", self._serialize_constraint(ad_msg))
+            except Exception as exc:  # noqa: BLE001
+                tb = _tb.format_exc()
+                print(f"[anomaly_detector_error] {tb}", flush=True)
+                self._emit("anomaly_detector_error", {
+                    "agent": "anomaly_detector",
+                    "error": f"{type(exc).__name__}: {exc}",
+                })
+
+        # Growth stage classifier — provides urgency metadata.
+        if self.growth_stage_agent is not None:
+            try:
+                gs_msg = self.growth_stage_agent.emit_constraint(image_path, latent)
+                out[gs_msg.sender] = gs_msg
+                if gs_msg.per_plant_log_likelihoods:
+                    self._emit("constraint", self._serialize_constraint(gs_msg))
+            except Exception as exc:  # noqa: BLE001
+                tb = _tb.format_exc()
+                print(f"[growth_stage_error] {tb}", flush=True)
+                self._emit("growth_stage_error", {
+                    "agent": "growth_stage",
+                    "error": f"{type(exc).__name__}: {exc}",
+                })
+
         return out
 
     @staticmethod

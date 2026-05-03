@@ -41,12 +41,20 @@ def _split_health_mass(probs: np.ndarray, id2label: dict[int, str]) -> tuple[flo
 
 
 class HealthClassifierAgent(ChannelAgent):
+    """ViT binary healthy/unhealthy classifier with temperature scaling."""
+
     HF_MODEL_ID = HF_MODEL_ID
 
-    def __init__(self, model: Any | None = None, processor: Any | None = None) -> None:
+    def __init__(
+        self,
+        model: Any | None = None,
+        processor: Any | None = None,
+        temperature: float | None = None,
+    ) -> None:
         super().__init__(name="health_classifier")
         self._model = model
         self._processor = processor
+        self._temperature = temperature
 
     def _load_model(self) -> tuple[Any, Any]:
         if self._model is not None and self._processor is not None:
@@ -62,12 +70,20 @@ class HealthClassifierAgent(ChannelAgent):
         self._model.eval()
         return self._model, self._processor
 
+    def _get_temperature(self) -> float:
+        if self._temperature is not None:
+            return self._temperature
+        from pulse.calibration import load_temperature
+        self._temperature = load_temperature("health_classifier")
+        return self._temperature
+
     def emit_constraint(
         self, image_path: str | None, latent: FieldLatentState
     ) -> ConstraintMessage:
         import torch
 
         model, processor = self._load_model()
+        T = self._get_temperature()
         full = Image.open(image_path).convert("RGB")
         id2label = getattr(model.config, "id2label", {})
         per_ll: dict[int, np.ndarray] = {}
@@ -82,7 +98,9 @@ class HealthClassifierAgent(ChannelAgent):
             inputs = processor(images=crop, return_tensors="pt")
             with torch.no_grad():
                 logits = model(**inputs).logits[0]
-            probs = torch.softmax(logits, dim=-1).cpu().numpy()
+            # Temperature scaling
+            calibrated_logits = logits / T
+            probs = torch.softmax(calibrated_logits, dim=-1).cpu().numpy()
             p_h, p_u = _split_health_mass(probs, id2label)
             log_lik = np.zeros(len(CONDITION_LABELS))
             # Push the healthy mass to healthy_crop.

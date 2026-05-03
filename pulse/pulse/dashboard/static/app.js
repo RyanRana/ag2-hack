@@ -24,21 +24,24 @@ const CONDITION_FRIENDLY = {
 };
 
 const ACTION_FRIENDLY = {
-  no_action: { verb: "leave alone",          icon: "🟢", cls: "healthy" },
-  laser_zap: { verb: "laser zap",            icon: "🔆", cls: "weed" },
-  targeted_spray: { verb: "spray herbicide", icon: "🚿", cls: "weed" },
-  targeted_fungicide: { verb: "apply fungicide", icon: "🧪", cls: "disease" },
-  targeted_irrigation: { verb: "irrigate",   icon: "💧", cls: "water" },
-  foliar_nutrient: { verb: "fertilize",      icon: "🌿", cls: "nutrient" },
-  human_review: { verb: "flag for review",   icon: "❓", cls: "review" },
-  rescan_higher_res: { verb: "scan closer",  icon: "🔍", cls: "review" },
+  no_action:           { verb: "leave alone",        icon: '<i class="ph ph-check-circle"></i>',       cls: "healthy"  },
+  laser_zap:           { verb: "laser zap",          icon: '<i class="ph-bold ph-lightning"></i>',     cls: "weed"     },
+  targeted_spray:      { verb: "spray herbicide",    icon: '<i class="ph ph-spray-bottle"></i>',       cls: "weed"     },
+  targeted_fungicide:  { verb: "apply fungicide",    icon: '<i class="ph ph-flask"></i>',              cls: "disease"  },
+  targeted_irrigation: { verb: "irrigate",           icon: '<i class="ph-fill ph-drop"></i>',          cls: "water"    },
+  foliar_nutrient:     { verb: "fertilize",          icon: '<i class="ph ph-leaf"></i>',               cls: "nutrient" },
+  human_review:        { verb: "flag for review",    icon: '<i class="ph ph-question"></i>',           cls: "review"   },
+  rescan_higher_res:   { verb: "scan closer",        icon: '<i class="ph ph-magnifying-glass"></i>',   cls: "review"   },
 };
 
 const PARADIGMS = {
   weed_detector: "ML",
   disease_classifier: "ML",
-  segmentation: "ML",
+  segmentation: "CV",
   health_classifier: "ML",
+  weather_prior: "PHYSICS",
+  anomaly_detector: "CV",
+  growth_stage: "ML",
   vlm_reasoner: "ML/LLM",
   water_balance: "BIOPHYSICS",
   pesticide_fate: "PHYSICS",
@@ -87,6 +90,18 @@ const MODEL_REFS = {
     label: "claude-haiku-4-5 · gpt-4o-mini (AG2 AssistantAgent)",
     url: "https://docs.anthropic.com/en/docs/about-claude/models",
   },
+  weather_prior: {
+    label: "Open-Meteo API (contextual priors)",
+    url: "https://open-meteo.com/",
+  },
+  anomaly_detector: {
+    label: "DINOv2 + PatchCore (anomaly scoring)",
+    url: "https://arxiv.org/abs/2304.07193",
+  },
+  growth_stage: {
+    label: "ViT growth-stage classifier (heuristic fallback)",
+    url: "#",
+  },
 };
 
 const INTERVENTIONS = ["no_action", "laser_zap", "targeted_spray",
@@ -129,6 +144,19 @@ const state = {
   ecology: {},
   physics: {},
   biophysics: null,
+  // Sprint 1-4 extensions
+  weather: null,
+  growthStages: {},
+  anomalyScores: {},
+  anomalyThreshold: 0.3,
+  explainOverlay: null,
+  explainVisible: false,
+  ragContext: [],
+  activeLearning: { total_queued: 0, unlabeled: 0, total_labeled: 0, trigger_breakdown: {} },
+  debateTurns: 0,
+  debateConverged: false,
+  temporalChanges: {},
+  inferenceMode: { vlm: "api", skeptic: "api" },
   busy: false,
   stream: { running: false, intervalMs: 1500, deepEvery: 5, frameTick: 0 },
   manifest: null,
@@ -173,11 +201,11 @@ function setStreamButtonState(s) {
   const b = $("stream-btn");
   if (s === "ready") {
     b.disabled = false;
-    b.textContent = "▶ START STREAM";
+    b.innerHTML = '<i class="ph-fill ph-play text-[13px]"></i><span>START STREAM</span>';
     b.classList.remove("streaming");
   } else if (s === "running") {
     b.disabled = false;
-    b.textContent = "■ STOP";
+    b.innerHTML = '<i class="ph-fill ph-stop text-[13px]"></i><span>STOP</span>';
     b.classList.add("streaming");
   }
 }
@@ -206,6 +234,13 @@ function handleEvent(kind, payload) {
     case "action":              onAction(payload); break;
     case "hypotheses":          onHypotheses(payload); break;
     case "done":                onDone(payload); break;
+    // Sprint 1-4 events
+    case "visual_explanation":  onVisualExplanation(payload); break;
+    case "temporal_diff":       onTemporalDiff(payload); break;
+    case "active_learning_update": onActiveLearning(payload); break;
+    case "debate_turn":         onDebateTurn(payload); break;
+    case "rag_context":         onRagContext(payload); break;
+    case "llm_phase":           onLLMPhase(payload); break;
   }
 }
 
@@ -220,6 +255,11 @@ function resetForNewFrame(payload) {
   state.physics = {};
   state.ecology = {};
   state.biophysics = null;
+  state.growthStages = {};
+  state.anomalyScores = {};
+  state.temporalChanges = {};
+  state.debateTurns = 0;
+  state.debateConverged = false;
   if (payload && payload.field_state) {
     state.liveField = payload.field_state;
     state.fieldState = {
@@ -276,6 +316,21 @@ function onConstraint(c) {
   if (c.sender === "water_balance") {
     state.biophysics = c.metadata || null;
     renderBiophysics();
+  }
+  if (c.sender === "weather_prior" && c.metadata) {
+    state.weather = c.metadata;
+    renderWeather();
+  }
+  if (c.sender === "anomaly_detector" && c.metadata) {
+    state.anomalyScores = c.metadata.per_plant_anomaly_scores || {};
+    state.anomalyThreshold = c.metadata.anomaly_threshold || 0.3;
+  }
+  if (c.sender === "growth_stage" && c.metadata) {
+    const perPlant = c.metadata.per_plant_growth || {};
+    for (const [pid, info] of Object.entries(perPlant)) {
+      state.growthStages[+pid] = info;
+    }
+    renderGrowthAnomaly();
   }
   renderAgents();
 }
@@ -420,12 +475,164 @@ function onDone(payload) {
     };
     state._frameWorst = null;
   }
+  // Sprint 2-4 data from done payload
+  if (payload && payload.growth_stages) {
+    for (const [pid, probs] of Object.entries(payload.growth_stages)) {
+      if (!state.growthStages[+pid]) state.growthStages[+pid] = probs;
+    }
+  }
+  if (payload && payload.anomaly_scores) {
+    for (const [pid, score] of Object.entries(payload.anomaly_scores)) {
+      state.anomalyScores[+pid] = +score;
+    }
+  }
+  if (payload && payload.inference_mode) {
+    state.inferenceMode = payload.inference_mode;
+  }
   renderAgents();
   renderTotals();
   renderWhyNotSpray();
   renderWind();
   drawDriftCones();
+  renderBoxes();
+  renderGrowthAnomaly();
 }
+
+// --- Sprint 1-4 event handlers -------------------------------------------
+
+function onVisualExplanation(payload) {
+  state.explainOverlay = payload.data_url || null;
+  const el = $("explain-overlay");
+  if (el && state.explainOverlay) {
+    el.src = state.explainOverlay;
+    if (state.explainVisible) el.style.display = "block";
+  }
+}
+
+function onTemporalDiff(payload) {
+  state.temporalChanges = payload.per_plant_changes || {};
+  renderBoxes();
+}
+
+function onActiveLearning(payload) {
+  state.activeLearning = payload || {};
+  const el = $("kpi-al-queue");
+  if (el) el.textContent = state.activeLearning.unlabeled || state.activeLearning.total_queued || 0;
+}
+
+function onDebateTurn(payload) {
+  state.debateTurns = payload.turn || 0;
+  state.debateConverged = !payload.continuing;
+  renderDebateIndicator();
+}
+
+function onRagContext(payload) {
+  state.ragContext = payload.documents || [];
+  renderRagPanel();
+}
+
+function onLLMPhase(payload) {
+  if (payload.vlm_mode) state.inferenceMode.vlm = payload.vlm_mode;
+  if (payload.skeptic_mode) state.inferenceMode.skeptic = payload.skeptic_mode;
+  renderAgents();
+}
+
+// --- Sprint 1-4 render functions -----------------------------------------
+
+function renderWeather() {
+  const panel = $("weather-panel");
+  const content = $("weather-content");
+  if (!panel || !content || !state.weather) return;
+  panel.style.display = "";
+  const adj = state.weather.adjustments || {};
+  const source = state.weather.weather_source || "none";
+  let html = `<div class="weather-row"><span class="weather-label">source</span><span class="weather-value">${source}</span></div>`;
+  for (const [label, val] of Object.entries(adj)) {
+    if (Math.abs(val) < 0.01) continue;
+    const dir = val > 0 ? "↑" : "↓";
+    const color = val > 0 ? "var(--destructive)" : "var(--pulse-ok)";
+    html += `<div class="weather-row"><span class="weather-label">${label.replace(/_/g, " ")}</span><span class="weather-value" style="color:${color}">${dir} ${Math.abs(val).toFixed(1)}</span></div>`;
+  }
+  if (Object.keys(adj).length === 0) {
+    html += `<div class="weather-row"><span class="weather-label">status</span><span class="weather-value">neutral</span></div>`;
+  }
+  content.innerHTML = html;
+}
+
+function renderGrowthAnomaly() {
+  const panel = $("growth-anomaly-panel");
+  const content = $("growth-anomaly-content");
+  if (!panel || !content) return;
+  const hasGrowth = Object.keys(state.growthStages).length > 0;
+  const hasAnomaly = Object.keys(state.anomalyScores).length > 0;
+  if (!hasGrowth && !hasAnomaly) return;
+  panel.style.display = "";
+  let html = "";
+  if (hasGrowth) {
+    const counts = {};
+    for (const info of Object.values(state.growthStages)) {
+      const stage = info.growth_stage || "unknown";
+      counts[stage] = (counts[stage] || 0) + 1;
+    }
+    html += '<div class="flex flex-wrap gap-1.5 mb-2">';
+    for (const [stage, n] of Object.entries(counts)) {
+      html += `<span class="growth-badge">${stage} ×${n}</span>`;
+    }
+    html += "</div>";
+  }
+  if (hasAnomaly) {
+    const anomCount = Object.values(state.anomalyScores).filter(s => s > state.anomalyThreshold).length;
+    if (anomCount > 0) {
+      html += `<div style="color:var(--destructive)"><span class="anomaly-badge">ANOMALY</span> ${anomCount} plant${anomCount > 1 ? "s" : ""} flagged</div>`;
+    } else {
+      html += `<div style="color:var(--pulse-ok)">no anomalies detected</div>`;
+    }
+  }
+  content.innerHTML = html;
+}
+
+function renderDebateIndicator() {
+  const el = $("debate-indicator");
+  if (!el) return;
+  if (state.debateTurns === 0) { el.style.display = "none"; return; }
+  el.style.display = "";
+  let dots = "";
+  for (let i = 1; i <= 3; i++) {
+    const cls = i <= state.debateTurns ? (state.debateConverged && i === state.debateTurns ? "done" : "active") : "";
+    dots += `<span class="turn-dot ${cls}"></span>`;
+  }
+  el.innerHTML = `<span>debate</span><span class="turn-dots">${dots}</span><span>${state.debateTurns}/3${state.debateConverged ? " converged" : ""}</span>`;
+}
+
+function renderRagPanel() {
+  const panel = $("rag-panel");
+  const content = $("rag-content");
+  if (!panel || !content || !state.ragContext.length) return;
+  panel.style.display = "";
+  let html = "";
+  for (const doc of state.ragContext) {
+    html += `<div class="rag-doc">`;
+    html += `<div class="rag-doc-title">${doc.id.replace(/_/g, " ")} <span class="rag-doc-score">${(doc.score * 100).toFixed(0)}%</span></div>`;
+    html += `<div class="rag-doc-text">${doc.text}</div>`;
+    if (doc.tags && doc.tags.length) {
+      html += `<div class="rag-doc-tags">${doc.tags.join(" · ")}</div>`;
+    }
+    html += `</div>`;
+  }
+  content.innerHTML = html;
+}
+
+// Explain overlay toggle
+(function() {
+  const btn = $("explain-toggle");
+  if (!btn) return;
+  btn.addEventListener("click", () => {
+    state.explainVisible = !state.explainVisible;
+    btn.classList.toggle("active", state.explainVisible);
+    const el = $("explain-overlay");
+    if (el) el.style.display = state.explainVisible && state.explainOverlay ? "block" : "none";
+  });
+})();
 
 // --- Frame capture + send ------------------------------------------------
 
@@ -531,11 +738,18 @@ function scheduleNextCapture(extraDelay = 0) {
 function renderAgents() {
   const wrap = $("agent-rows");
   const allAgents = ["weed_detector", "disease_classifier", "segmentation",
-                     "health_classifier", "vlm_reasoner",
+                     "health_classifier", "weather_prior", "anomaly_detector",
+                     "growth_stage", "vlm_reasoner",
                      "water_balance", "pesticide_fate", "ecological_dynamics",
                      "skeptic"];
   wrap.innerHTML = "";
-  const STATUS_GLYPH = { ok: "✓", fail: "✗", running: "•", skipped: "—", pending: "⏳" };
+  const STATUS_GLYPH = {
+    ok:      '<i class="ph-bold ph-check"></i>',
+    fail:    '<i class="ph-bold ph-x"></i>',
+    running: '<i class="ph-fill ph-circle"></i>',
+    skipped: '<i class="ph ph-minus"></i>',
+    pending: '<i class="ph ph-hourglass"></i>',
+  };
   for (const name of allAgents) {
     const status = state.agents[name] || "pending";
     const ref = MODEL_REFS[name];
@@ -544,8 +758,17 @@ function renderAgents() {
       : `<span class="model-ref"></span>`;
     const div = document.createElement("div");
     div.className = "agent-row";
+    // Mode badge for VLM/Skeptic (Sprint 3)
+    let modeBadge = "";
+    if (name === "vlm_reasoner" && state.inferenceMode.vlm) {
+      const mode = state.inferenceMode.vlm;
+      modeBadge = `<span class="mode-badge ${mode}">${mode}</span>`;
+    } else if (name === "skeptic" && state.inferenceMode.skeptic) {
+      const mode = state.inferenceMode.skeptic;
+      modeBadge = `<span class="mode-badge ${mode}">${mode}</span>`;
+    }
     div.innerHTML = `
-      <span class="name">${name}</span>
+      <span class="name">${name}${modeBadge}</span>
       <span class="paradigm">${PARADIGMS[name] || ""}</span>
       ${refHtml}
       <span class="status ${status}">${STATUS_GLYPH[status] || "?"}</span>
@@ -593,6 +816,9 @@ function renderBoxes() {
       div.classList.add("physics-veto");
     }
     if (p.entropy > 1.5) div.classList.add("disputed");
+    // Temporal change highlight (Sprint 4)
+    const tc = state.temporalChanges[pid];
+    if (tc && tc.changed) div.classList.add("temporal-changed");
     div.style.left = (x1 * sx) + "px";
     div.style.top = (y1 * sy) + "px";
     div.style.width = ((x2 - x1) * sx) + "px";
@@ -622,12 +848,19 @@ function renderBoxes() {
       ? ` <span class="alt">/ ${Math.round(secondaryP*100)}% ${(CONDITION_FRIENDLY[secondary] || secondary)}</span>`
       : "";
     const act = ACTION_FRIENDLY[p.action];
-    const actStr = act ? ` → <b>${act.verb.toUpperCase()}</b>` : "";
+    const actStr = act ? ` <i class="ph-bold ph-arrow-right"></i> <b>${act.verb.toUpperCase()}</b>` : "";
     const species = state.species[pid];  // "weed" | "crop" | undefined
     const speciesPrefix = species
       ? `<span class="species ${species}">${species.toUpperCase()}</span> · `
       : "";
-    label.innerHTML = `${speciesPrefix}<b>${cond}</b> ${probPct}%${top2}${actStr}`;
+    // Anomaly badge (Sprint 2)
+    const anomScore = state.anomalyScores[pid];
+    const anomBadge = (anomScore != null && anomScore > state.anomalyThreshold)
+      ? ` <span class="anomaly-badge">ANOMALY</span>` : "";
+    // Growth stage badge (Sprint 2)
+    const gs = state.growthStages[pid];
+    const gsBadge = gs ? ` <span class="growth-badge">${gs.growth_stage || ""}</span>` : "";
+    label.innerHTML = `${speciesPrefix}<b>${cond}</b> ${probPct}%${top2}${anomBadge}${gsBadge}${actStr}`;
     layer.appendChild(div);
     layer.appendChild(label);
   }
@@ -801,7 +1034,7 @@ function renderActionsSummary() {
   const flagged = Array.from(groups.values());
   const lastFrame = state.lastFrameActions || [];
   if (!flagged.length && !lastFrame.length) {
-    wrap.innerHTML = `<div class="actions-empty">Press ▶ START STREAM to begin.</div>`;
+    wrap.innerHTML = `<div class="actions-empty">Press <i class="ph-fill ph-play"></i> START STREAM to begin.</div>`;
     return;
   }
   const cards = [];
@@ -869,13 +1102,13 @@ function renderActionsSummary() {
     }
     return `
       <div class="last-frame-strip">
-        <div class="actions-section-title">⟳ This frame</div>
+        <div class="actions-section-title"><i class="ph ph-arrows-clockwise"></i> This frame</div>
         <div class="mini-pills">${lines.join("")}</div>
       </div>
     `;
   })();
   const flaggedHeader = flagged.length
-    ? `<div class="actions-section-title flagged">⚑ Flagged interventions (${flagged.length})</div>`
+    ? `<div class="actions-section-title flagged"><i class="ph-fill ph-flag"></i> Flagged interventions (${flagged.length})</div>`
     : "";
   wrap.innerHTML = lastSummary + flaggedHeader + cards.join("");
   // Wire snapshot clicks to seek video.
@@ -901,6 +1134,9 @@ function renderTotals() {
   // application that would have killed ~100 predators in the local plot.
   $("kpi-eco").textContent = (t.eco_vetos * 100);
   $("kpi-saved").innerHTML = `${t.chem_saved_ml.toFixed(0)} <span class="unit">ml</span>`;
+  // Active learning queue (Sprint 4)
+  const alEl = $("kpi-al-queue");
+  if (alEl) alEl.textContent = state.activeLearning.unlabeled || state.activeLearning.total_queued || 0;
 }
 
 // WHY-NOT-SPRAY now renders inline inside the matching flagged action card —
@@ -925,7 +1161,7 @@ function whyNotSprayDetailFor(f) {
       on a downwind neighbour and cut ladybug predators by
       <span class="num">${predDrop}%</span> in 14 days.
       Wind ${wind.wind_speed_m_s ?? "—"} m/s @ ${Math.round(wind.wind_dir_deg ?? 0)}°,
-      soil ψ ${psi} kPa. →
+      soil ψ ${psi} kPa. <i class="ph-bold ph-arrow-right"></i>
       <span class="alt">laser zap</span>: 0 ppm drift, 0 predator loss, ~5 ml herbicide saved.
     </div>
   `;
@@ -991,7 +1227,7 @@ function humanize(kind, p) {
       const haz = p.hazard_score ?? 0;
       const drift = (p.hazard_breakdown?.drift_max_ppm ?? 0).toFixed(2);
       if (haz >= 0.4) {
-        return warn(`⚠ physics flag: spraying plant ${p.plant_id} would hit downwind targets at ${drift} ppm`);
+        return warn(`<i class="ph-fill ph-warning"></i> physics flag: spraying plant ${p.plant_id} would hit downwind targets at ${drift} ppm`);
       }
       return ok(`pesticide_fate cleared plant ${p.plant_id} for <b>${p.action_type}</b> (drift ${drift} ppm)`);
     }
@@ -1001,7 +1237,7 @@ function humanize(kind, p) {
       const cost = p.ecological_cost_score ?? 0;
       const drop = (p.cost_breakdown?.predator_drop_pct_d14 ?? 0) * 100;
       if (cost >= 0.5) {
-        return warn(`⚠ ecology flag: chlorpyrifos on plant ${p.plant_id} would drop predators ${drop.toFixed(0)}% in 14 days`);
+        return warn(`<i class="ph-fill ph-warning"></i> ecology flag: chlorpyrifos on plant ${p.plant_id} would drop predators ${drop.toFixed(0)}% in 14 days`);
       }
       return ok(`ecological_dynamics cleared plant ${p.plant_id} for <b>${p.action_type}</b> (predator drop ${drop.toFixed(0)}%)`);
     }
@@ -1009,14 +1245,14 @@ function humanize(kind, p) {
       const cond = ((state.plants[p.plant_id]?.top1) ?? "ambiguous");
       const condFr = CONDITION_FRIENDLY[cond] || cond;
       const act = ACTION_FRIENDLY[p.action_type] || { verb: p.action_type, icon: "•" };
-      return ok(`${act.icon} plant ${p.plant_id} <span class="text-dim">(${condFr.toLowerCase()})</span> → <b>${act.verb}</b>`);
+      return ok(`${act.icon} plant ${p.plant_id} <span class="text-dim">(${condFr.toLowerCase()})</span> <i class="ph-bold ph-arrow-right"></i> <b>${act.verb}</b>`);
     }
     case "hypotheses": {
       if (!Array.isArray(p) || !p.length) {
-        return ok(`🧠 skeptic raised no objections`);
+        return ok(`<i class="ph ph-brain"></i> skeptic raised no objections`);
       }
       const list = p.map(h => h.hypothesis_id).join(", ");
-      return warn(`🧠 skeptic flagged: ${list}`);
+      return warn(`<i class="ph ph-brain"></i> skeptic flagged: ${list}`);
     }
     case "done": {
       const n = (p?.actions ?? []).length;
@@ -1036,9 +1272,30 @@ function humanize(kind, p) {
     case "run_demo_error":
     case "upload_error":
       return flag(`${kind}: ${p.error || ""}`);
+    // Sprint 1-4 events
+    case "visual_explanation":
+      return ok(`evidence overlay updated`);
+    case "temporal_diff": {
+      const n = (p.escalated || []).length;
+      return n > 0 ? warn(`<b>${n}</b> plant${n===1?"":"s"} changed since last frame`) : ok(`no temporal change detected`);
+    }
+    case "active_learning_update": {
+      const q = p.total_queued || 0;
+      return q > 0 ? warn(`<b>${q}</b> hard case${q===1?"":"s"} queued for labeling`) : ok(`active learning queue empty`);
+    }
+    case "debate_turn":
+      return p.continuing ? ok(`skeptic-VLM debate turn <b>${p.turn}/${p.max_turns}</b>`) : ok(`debate ${p.converged ? "converged" : "ended"} after ${p.turn} turn${p.turn===1?"":"s"}`);
+    case "rag_context": {
+      const n = (p.documents || []).length;
+      return ok(`RAG retrieved <b>${n}</b> treatment reference${n===1?"":"s"}`);
+    }
+    case "llm_phase":
+      return ok(`LLM phase: VLM=${p.vlm_mode||"?"} skeptic=${p.skeptic_mode||"?"} disputed=<b>${(p.disputed_plants||[]).length}</b>`);
+    case "weather_prior_error":
+    case "anomaly_detector_error":
+    case "growth_stage_error":
+      return flag(`${kind}: ${p.error || ""}`);
     default:
-      // Surface unknown kinds rather than swallowing them — useful while the
-      // backend is in flux, and never leaves the stream looking idle.
       return ok(`<span class="text-dim">${kind}</span>`);
   }
 }

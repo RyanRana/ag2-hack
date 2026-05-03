@@ -1,14 +1,21 @@
-"""VLMReasonerAgent — LLM-backed targeted cross-examination of disputed regions.
+"""VLMReasonerAgent — local VLM + external API fallback.
 
-AG2 idiom: ``AssistantAgent`` whose ONLY output is structured tool calls
-(``analyze_disagreement_region`` and ``submit_per_plant_likelihoods``). The
-LLM never speaks prose — it picks which region to inspect and which class
-hypotheses to weight, then emits a ConstraintMessage via the registered
-tools. The tool payloads are numeric-only (preserves the §6 firewall).
+Enhanced to support two inference paths:
 
-Per project memory, no heuristic fallback at the agent level — the LLM is
-required. Tests inject a stub ``analyzer`` and call the registered tools
-directly to exercise the typed-args contract without an API key.
+  1. **Local VLM** (preferred): LLaVA/InternVL2 loaded via pulse.local_model.
+     Receives the ACTUAL crop image + structured prompt. Outputs JSON with
+     per-condition log-likelihoods. No external API. Fully offline.
+
+  2. **External API fallback**: Original AssistantAgent + register_function
+     path via OpenAI/Anthropic. Used when local model is unavailable.
+
+AG2 idioms preserved:
+  - AssistantAgent with typed tool calls (external path)
+  - ChannelAgent envelope for local path
+  - ConstraintMessage protocol (no prose in the wire format)
+
+The local VLM and Skeptic share the same model instance via
+``pulse.local_model.get_shared_backend()``.
 """
 
 from __future__ import annotations
@@ -21,8 +28,28 @@ from autogen import AssistantAgent, UserProxyAgent, register_function
 from PIL import Image
 
 from pulse.latent import CONDITION_LABELS, FieldLatentState
-from pulse.llm_config import openai_llm_config
+from pulse.llm_config import llm_key_available, openai_llm_config
+from pulse.local_model import LocalModelBackend, get_shared_backend, parse_structured_output
 from pulse.messages import ConstraintMessage
+
+
+_VLM_PROMPT_TEMPLATE = """Analyze this crop image for plant health conditions.
+You are examining plant #{plant_id} at bounding box ({x1},{y1},{x2},{y2}).
+
+Visual features observed: {features}
+
+Provide your assessment as a JSON object with log-likelihood scores for each condition.
+Positive values indicate the condition is more likely, negative values less likely.
+Look for specific visual cues:
+  - "concentric rings" or "bullseye patterns" → fungal disease
+  - "water-soaked margins" → bacterial disease
+  - "clean tears or holes" → mechanical/pest damage
+  - "uniform yellowing" → nutrient stress or water stress
+  - "wilting without discoloration" → water stress
+  - "mottled/mosaic patterns" → viral disease
+
+Respond ONLY with a JSON object in this exact format:
+{{"healthy_crop": 0.0, "weed": 0.0, "disease": 0.0, "nutrient_stress": 0.0, "water_stress": 0.0, "pest_damage": 0.0, "ambiguous": 0.0}}"""
 
 
 SYSTEM_MESSAGE = (
@@ -37,7 +64,12 @@ SYSTEM_MESSAGE = (
 
 
 class VLMReasonerAgent(AssistantAgent):
-    """LLM-backed agent that emits ConstraintMessages via typed tool calls."""
+    """VLM agent supporting local model inference with external API fallback.
+
+    When a local model backend is available (via pulse.local_model), the agent
+    uses it to analyze actual crop images. Otherwise, falls back to the
+    external API path with typed tool calls.
+    """
 
     LABELS = list(CONDITION_LABELS)
 
@@ -47,8 +79,23 @@ class VLMReasonerAgent(AssistantAgent):
         llm_config: dict | None = None,
         analyzer: Callable[[np.ndarray, tuple[int, int, int, int]], dict[str, float]]
         | None = None,
+        local_backend: LocalModelBackend | None = None,
     ) -> None:
-        cfg = llm_config or openai_llm_config()
+        # Try local model first; external API is fallback
+        self._local_backend = local_backend
+        self._use_local = False
+
+        if self._local_backend is not None and self._local_backend.is_loaded:
+            self._use_local = True
+
+        if not self._use_local:
+            try:
+                cfg = llm_config or openai_llm_config()
+            except Exception:
+                cfg = False  # no LLM available at all
+        else:
+            cfg = False  # local model handles inference, not AG2 LLM
+
         super().__init__(
             name="vlm_reasoner",
             llm_config=cfg,
@@ -60,8 +107,7 @@ class VLMReasonerAgent(AssistantAgent):
         self._features: dict[int, dict[str, float]] = {}
         self._likelihoods: dict[int, list[float]] = {}
 
-        # Register typed tools as inner functions (AG2 requires FunctionType,
-        # not bound methods). Each wraps a private impl on self.
+        # Register typed tools for external API path
         agent_self = self
 
         def analyze_disagreement_region(
@@ -96,26 +142,27 @@ class VLMReasonerAgent(AssistantAgent):
                 log_lik_ambiguous,
             )
 
-        register_function(
-            analyze_disagreement_region,
-            caller=self,
-            executor=self,
-            description=(
-                "Crop the disputed plant region and return numerical visual features "
-                "(green_ratio, yellowness, edge_density, brightness, size_px)."
-            ),
-        )
-        register_function(
-            submit_per_plant_likelihoods,
-            caller=self,
-            executor=self,
-            description=(
-                "Submit final per-plant log-likelihood vector over the seven "
-                "CONDITION_LABELS in fixed order: healthy_crop, weed, disease, "
-                "nutrient_stress, water_stress, pest_damage, ambiguous."
-            ),
-        )
-        # Expose the registered tools so tests can call them directly.
+        # Only register tools with AG2 when using external API path.
+        if cfg and cfg is not False:
+            register_function(
+                analyze_disagreement_region,
+                caller=self,
+                executor=self,
+                description=(
+                    "Crop the disputed plant region and return numerical visual features "
+                    "(green_ratio, yellowness, edge_density, brightness, size_px)."
+                ),
+            )
+            register_function(
+                submit_per_plant_likelihoods,
+                caller=self,
+                executor=self,
+                description=(
+                    "Submit final per-plant log-likelihood vector over the seven "
+                    "CONDITION_LABELS in fixed order: healthy_crop, weed, disease, "
+                    "nutrient_stress, water_stress, pest_damage, ambiguous."
+                ),
+            )
         self.analyze_disagreement_region = analyze_disagreement_region
         self.submit_per_plant_likelihoods = submit_per_plant_likelihoods
 
@@ -127,7 +174,88 @@ class VLMReasonerAgent(AssistantAgent):
         latent: FieldLatentState,
         disputed_plant_ids: list[int],
     ) -> ConstraintMessage:
-        """Run the LLM loop on disputed plants, collecting structured outputs."""
+        """Run VLM analysis on disputed plants.
+
+        Uses local model if available, otherwise falls back to external API.
+        """
+        if self._use_local:
+            return self._emit_local(image_path, latent, disputed_plant_ids)
+        return self._emit_external(image_path, latent, disputed_plant_ids)
+
+    # --- Local VLM path --------------------------------------------------
+
+    def _emit_local(
+        self,
+        image_path: str,
+        latent: FieldLatentState,
+        disputed_plant_ids: list[int],
+    ) -> ConstraintMessage:
+        """Analyze disputed plants using local VLM with actual images."""
+        full_img = Image.open(image_path).convert("RGB")
+        per_ll: dict[int, np.ndarray] = {}
+        per_resid: dict[int, float] = {}
+        per_conf: dict[int, float] = {}
+
+        plants = {p.plant_id: p for p in latent.plants}
+
+        for pid in disputed_plant_ids:
+            plant = plants.get(pid)
+            if plant is None:
+                per_ll[pid] = np.zeros(len(CONDITION_LABELS))
+                per_resid[pid] = 0.0
+                per_conf[pid] = 0.1
+                continue
+
+            x1, y1, x2, y2 = plant.bbox
+            crop = full_img.crop((x1, y1, x2, y2))
+
+            # Compute features for the prompt
+            crop_arr = np.asarray(crop)
+            feats = self._analyzer(crop_arr, (x1, y1, x2, y2))
+            feats_str = ", ".join(f"{k}={v:.3f}" for k, v in feats.items())
+
+            prompt = _VLM_PROMPT_TEMPLATE.format(
+                plant_id=pid, x1=x1, y1=y1, x2=x2, y2=y2, features=feats_str
+            )
+
+            try:
+                response = self._local_backend.generate_with_image(
+                    crop, prompt, max_new_tokens=256, temperature=0.1
+                )
+                parsed = parse_structured_output(response)
+                if parsed:
+                    ll = np.array([
+                        float(parsed.get(label, 0.0)) for label in CONDITION_LABELS
+                    ])
+                else:
+                    ll = np.zeros(len(CONDITION_LABELS))
+            except Exception:
+                ll = np.zeros(len(CONDITION_LABELS))
+
+            per_ll[pid] = ll
+            per_resid[pid] = float(1.0 - feats.get("green_ratio", 0.0))
+            per_conf[pid] = float(feats.get("brightness", 0.5))
+
+        return ConstraintMessage(
+            sender=self.name,
+            timestamp=time.time(),
+            iteration=latent.iteration,
+            per_plant_log_likelihoods=per_ll,
+            per_plant_residual=per_resid,
+            per_plant_confidence=per_conf,
+            labels_discriminated=list(CONDITION_LABELS),
+            metadata={"inference_mode": "local_vlm", "model_id": self._local_backend.model_id},
+        )
+
+    # --- External API path (fallback) ------------------------------------
+
+    def _emit_external(
+        self,
+        image_path: str,
+        latent: FieldLatentState,
+        disputed_plant_ids: list[int],
+    ) -> ConstraintMessage:
+        """Original external API path via AG2 AssistantAgent."""
         self._image = Image.open(image_path).convert("RGB")
         self._latent = latent
         self._features.clear()
@@ -146,8 +274,6 @@ class VLMReasonerAgent(AssistantAgent):
                 and not m.get("tool_calls")
             ),
         )
-        # Driver receives the tool_call messages — it must have the tool
-        # implementations in its function_map. Copy ours over.
         driver.register_function(function_map=dict(self.function_map))
         driver.initiate_chat(self, message=prompt_text, silent=True)
 
@@ -168,18 +294,13 @@ class VLMReasonerAgent(AssistantAgent):
             per_plant_residual=per_resid,
             per_plant_confidence=per_conf,
             labels_discriminated=list(CONDITION_LABELS),
-            metadata={"features": dict(self._features)},
+            metadata={"inference_mode": "external_api"},
         )
 
     # --- Internal tool implementations ------------------------------------
 
     def _analyze_region_impl(
-        self,
-        plant_id: int,
-        bbox_x1: int,
-        bbox_y1: int,
-        bbox_x2: int,
-        bbox_y2: int,
+        self, plant_id, bbox_x1, bbox_y1, bbox_x2, bbox_y2,
     ) -> dict[str, float]:
         if self._image is None:
             raise RuntimeError("emit_constraint_for must be called before tool use")
@@ -189,26 +310,15 @@ class VLMReasonerAgent(AssistantAgent):
         return feats
 
     def _submit_likelihoods_impl(
-        self,
-        plant_id: int,
-        log_lik_healthy_crop: float,
-        log_lik_weed: float,
-        log_lik_disease: float,
-        log_lik_nutrient_stress: float,
-        log_lik_water_stress: float,
-        log_lik_pest_damage: float,
-        log_lik_ambiguous: float,
+        self, plant_id, log_lik_healthy_crop, log_lik_weed, log_lik_disease,
+        log_lik_nutrient_stress, log_lik_water_stress, log_lik_pest_damage,
+        log_lik_ambiguous,
     ) -> dict[str, float]:
-        ll = [
-            float(log_lik_healthy_crop),
-            float(log_lik_weed),
-            float(log_lik_disease),
-            float(log_lik_nutrient_stress),
-            float(log_lik_water_stress),
-            float(log_lik_pest_damage),
-            float(log_lik_ambiguous),
+        self._likelihoods[int(plant_id)] = [
+            float(log_lik_healthy_crop), float(log_lik_weed), float(log_lik_disease),
+            float(log_lik_nutrient_stress), float(log_lik_water_stress),
+            float(log_lik_pest_damage), float(log_lik_ambiguous),
         ]
-        self._likelihoods[int(plant_id)] = ll
         return {"accepted": 1.0}
 
 

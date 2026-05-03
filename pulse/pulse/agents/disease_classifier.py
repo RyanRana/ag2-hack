@@ -111,14 +111,25 @@ def _load_processor_with_fallback(repo: str, *, fallback: str):
 
 
 class DiseaseClassifierAgent(ChannelAgent):
-    """ChannelAgent backed by the linkanjarad MobileNetV2 model."""
+    """ChannelAgent backed by the linkanjarad MobileNetV2 model.
+
+    Temperature scaling: if a calibrated temperature T has been saved via
+    ``pulse.calibration.save_temperature("disease_classifier", T)``, the
+    logits are divided by T before softmax, producing calibrated probabilities.
+    """
 
     HF_MODEL_ID = HF_MODEL_ID
 
-    def __init__(self, model: Any | None = None, processor: Any | None = None) -> None:
+    def __init__(
+        self,
+        model: Any | None = None,
+        processor: Any | None = None,
+        temperature: float | None = None,
+    ) -> None:
         super().__init__(name="disease_classifier")
         self._model = model
         self._processor = processor
+        self._temperature = temperature
 
     def _load_model(self) -> tuple[Any, Any]:
         if self._model is not None and self._processor is not None:
@@ -132,12 +143,20 @@ class DiseaseClassifierAgent(ChannelAgent):
         self._model.eval()
         return self._model, self._processor
 
+    def _get_temperature(self) -> float:
+        if self._temperature is not None:
+            return self._temperature
+        from pulse.calibration import load_temperature
+        self._temperature = load_temperature("disease_classifier")
+        return self._temperature
+
     def emit_constraint(
         self, image_path: str | None, latent: FieldLatentState
     ) -> ConstraintMessage:
         import torch  # local import keeps the module importable without torch
 
         model, processor = self._load_model()
+        T = self._get_temperature()
         full_img = Image.open(image_path).convert("RGB")
         per_ll: dict[int, np.ndarray] = {}
         per_resid: dict[int, float] = {}
@@ -148,7 +167,9 @@ class DiseaseClassifierAgent(ChannelAgent):
             inputs = processor(images=crop, return_tensors="pt")
             with torch.no_grad():
                 logits = model(**inputs).logits[0]
-            probs = torch.softmax(logits, dim=-1).cpu().numpy()
+            # Temperature scaling: divide logits by T before softmax
+            calibrated_logits = logits / T
+            probs = torch.softmax(calibrated_logits, dim=-1).cpu().numpy()
             log_lik = map_probs_to_conditions(probs, id2label)
             per_ll[plant.plant_id] = log_lik
             top = float(probs.max())

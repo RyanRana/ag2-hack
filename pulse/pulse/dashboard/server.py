@@ -21,12 +21,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
+from pulse.active_learning import ActiveLearningManager
+from pulse.agents.anomaly_detector import AnomalyDetectorAgent
 from pulse.agents.disease_classifier import DiseaseClassifierAgent
+from pulse.agents.growth_stage import GrowthStageAgent
 from pulse.agents.health_classifier import HealthClassifierAgent
 from pulse.agents.segmentation import SegmentationAgent
+from pulse.agents.weather_prior import WeatherPriorAgent
 from pulse.agents.weed_detector import WeedDetectorAgent
 from pulse.captain import PulseCaptain
+from pulse.cross_exam import max_disagreement_per_plant
 from pulse.llm_config import llm_key_available
+from pulse.messages import CrossExamMessage
 
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -125,6 +131,9 @@ def create_app() -> FastAPI:
         "running": False,
         "running_lock": asyncio.Lock(),
         "manifest": _load_manifest(),
+        "active_learning": ActiveLearningManager(),
+        "rag": None,  # lazy-init on first use
+        "previous_frame_path": None,
     }
 
     def _broadcast(kind: str, payload: Any) -> None:
@@ -241,10 +250,17 @@ def create_app() -> FastAPI:
                     field_state,
                     prebuilt_latent=latent,
                 )
+                await asyncio.to_thread(
+                    _post_inference_hooks,
+                    captain, result, str(src_path), field_state, state, _broadcast,
+                )
                 _broadcast("done", {
                     "actions": result["actions"],
                     "frame_index": frame_index,
                     "field_state": field_state,
+                    "growth_stages": result.get("growth_stages"),
+                    "anomaly_scores": result.get("anomaly_scores"),
+                    "inference_mode": result.get("inference_mode"),
                 })
                 return {"ok": True, "frame_index": frame_index, "result": _to_jsonable(result)}
             finally:
@@ -274,7 +290,16 @@ def create_app() -> FastAPI:
                 fs = _default_field_state()
                 captain = _build_captain(emit_event=_broadcast, live=not deep)
                 result = await asyncio.to_thread(captain.run_inference, tmp.name, fs)
-                _broadcast("done", {"actions": result["actions"]})
+                await asyncio.to_thread(
+                    _post_inference_hooks,
+                    captain, result, tmp.name, fs, state, _broadcast,
+                )
+                _broadcast("done", {
+                    "actions": result["actions"],
+                    "growth_stages": result.get("growth_stages"),
+                    "anomaly_scores": result.get("anomaly_scores"),
+                    "inference_mode": result.get("inference_mode"),
+                })
                 return {"ok": True, "result": _to_jsonable(result)}
             finally:
                 state["running"] = False
@@ -302,11 +327,21 @@ def create_app() -> FastAPI:
             state["running"] = True
             _broadcast("run_started", {"filename": filename, "kind": "demo"})
             try:
+                fs = _default_field_state()
                 captain = _build_captain(emit_event=_broadcast)
                 result = await asyncio.to_thread(
-                    captain.run_inference, str(path), _default_field_state()
+                    captain.run_inference, str(path), fs
                 )
-                _broadcast("done", {"actions": result["actions"]})
+                await asyncio.to_thread(
+                    _post_inference_hooks,
+                    captain, result, str(path), fs, state, _broadcast,
+                )
+                _broadcast("done", {
+                    "actions": result["actions"],
+                    "growth_stages": result.get("growth_stages"),
+                    "anomaly_scores": result.get("anomaly_scores"),
+                    "inference_mode": result.get("inference_mode"),
+                })
                 return {"ok": True, "filename": filename, "result": _to_jsonable(result)}
             finally:
                 state["running"] = False
@@ -324,6 +359,35 @@ def create_app() -> FastAPI:
         finally:
             state["clients"].discard(websocket)
 
+    @app.get("/api/active-learning/queue")
+    async def al_queue() -> dict:
+        mgr = state.get("active_learning")
+        if not mgr:
+            return {"entries": [], "summary": {}}
+        return {
+            "summary": mgr.summary(),
+            "unlabeled": [
+                {"entry_id": e.entry_id, "plant_id": e.plant_id,
+                 "trigger_reason": e.trigger_reason,
+                 "top_prediction": e.top_prediction,
+                 "top_confidence": round(e.top_confidence, 3)}
+                for e in mgr.get_unlabeled_entries()
+            ],
+        }
+
+    @app.post("/api/active-learning/label")
+    async def al_label(entry_id: str, label: str) -> dict:
+        mgr = state.get("active_learning")
+        if not mgr:
+            raise HTTPException(status_code=404, detail="no active learning manager")
+        try:
+            ok = mgr.label_entry(entry_id, label)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        if not ok:
+            raise HTTPException(status_code=404, detail="entry not found")
+        return {"ok": True, "summary": mgr.summary()}
+
     @app.post("/api/run")
     async def run(image: UploadFile, field_state: str | None = None) -> dict:
         if state["running"]:
@@ -339,7 +403,16 @@ def create_app() -> FastAPI:
                 fs = json.loads(field_state) if field_state else _default_field_state()
                 captain = _build_captain(emit_event=_broadcast)
                 result = await asyncio.to_thread(captain.run_inference, tmp.name, fs)
-                _broadcast("done", {"actions": result["actions"]})
+                await asyncio.to_thread(
+                    _post_inference_hooks,
+                    captain, result, tmp.name, fs, state, _broadcast,
+                )
+                _broadcast("done", {
+                    "actions": result["actions"],
+                    "growth_stages": result.get("growth_stages"),
+                    "anomaly_scores": result.get("anomaly_scores"),
+                    "inference_mode": result.get("inference_mode"),
+                })
                 return {"ok": True, "result": _to_jsonable(result)}
             finally:
                 state["running"] = False
@@ -371,11 +444,18 @@ def _build_captain(emit_event=None, *, live: bool = False) -> PulseCaptain:
     agents and physics + biophysics + ecology still run.
     """
     ml_agents: list[Any] = []
-    # Each ML agent loads its model lazily on first use, so cheap to construct.
     ml_agents.append(WeedDetectorAgent())
     ml_agents.append(DiseaseClassifierAgent())
     ml_agents.append(SegmentationAgent())
     ml_agents.append(HealthClassifierAgent())
+
+    # Sprint 1: Weather prior (runs before ML agents, adjusts priors)
+    weather_prior = WeatherPriorAgent()
+
+    # Sprint 2: Anomaly detector + growth stage
+    anomaly_detector = AnomalyDetectorAgent()
+    growth_stage = GrowthStageAgent()
+
     skeptic = None
     vlm = None
     if not live and llm_key_available():
@@ -398,10 +478,163 @@ def _build_captain(emit_event=None, *, live: bool = False) -> PulseCaptain:
                 emit_event("vlm_construction_error", {"error": f"{type(exc).__name__}: {exc}"})
     return PulseCaptain(
         ml_agents=ml_agents,
+        weather_prior_agent=weather_prior,
+        anomaly_detector=anomaly_detector,
+        growth_stage_agent=growth_stage,
         skeptic_agent=skeptic,
         vlm_reasoner=vlm,
         emit_event=emit_event,
     )
+
+
+def _post_inference_hooks(
+    captain: PulseCaptain,
+    result: dict,
+    src_path: str,
+    field_state: dict,
+    state: dict,
+    broadcast: Any,
+) -> dict:
+    """Run post-inference hooks to broadcast new Sprint 1-4 data.
+
+    Mutates ``result`` to add extra fields consumed by the ``done`` event.
+    Returns the enriched result.
+    """
+    import base64
+    import io
+    import traceback as _tb
+
+    # --- Visual explanation overlay (Sprint 1) ---
+    seg_agent = next(
+        (a for a in captain.ml_agents if getattr(a, "name", "") == "segmentation"),
+        None,
+    )
+    if seg_agent and getattr(seg_agent, "evidence_maps", None):
+        try:
+            from PIL import Image as PILImage
+            from pulse.visual_explain import render_field_explanation
+
+            annotated = render_field_explanation(src_path, seg_agent.evidence_maps)
+            pil_img = PILImage.fromarray(annotated)
+            buf = io.BytesIO()
+            pil_img.save(buf, format="JPEG", quality=70)
+            data_url = "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+            broadcast("visual_explanation", {"data_url": data_url})
+        except Exception:
+            print(f"[visual_explain_error] {_tb.format_exc()}", flush=True)
+
+    # --- Growth stage metadata (Sprint 2) ---
+    gs_agent = captain.growth_stage_agent
+    if gs_agent and getattr(gs_agent, "growth_stages", None):
+        result["growth_stages"] = {
+            int(k): v for k, v in gs_agent.growth_stages.items()
+        }
+
+    # --- Anomaly scores metadata (Sprint 2) ---
+    ad_agent = captain.anomaly_detector
+    if ad_agent and getattr(ad_agent, "anomaly_scores", None):
+        result["anomaly_scores"] = {
+            int(k): float(v) for k, v in ad_agent.anomaly_scores.items()
+        }
+
+    # --- Inference mode (Sprint 3) ---
+    vlm = captain.vlm_reasoner
+    skeptic = captain.skeptic_agent
+    result["inference_mode"] = {
+        "vlm": "local" if (vlm and getattr(vlm, "_use_local", False)) else "api",
+        "skeptic": "local" if (skeptic and getattr(skeptic, "_use_local", False)) else "api",
+    }
+
+    # --- RAG context (Sprint 3) ---
+    try:
+        if state.get("rag") is None:
+            from pulse.rag.retriever import AgronomicRAG
+            state["rag"] = AgronomicRAG()
+
+        rag = state["rag"]
+        # Find the dominant non-healthy condition across all plants
+        latent_data = result.get("latent", {})
+        dominant_condition = "disease"
+        for p in latent_data.get("plants", []):
+            top_k = p.get("top_k", [])
+            if top_k and top_k[0][0] != "healthy_crop":
+                dominant_condition = top_k[0][0]
+                break
+
+        docs = rag.query_for_treatment(
+            dominant_condition, crop=field_state.get("crop_type", ""),
+        )
+        broadcast("rag_context", {
+            "documents": [
+                {"id": d["id"], "text": d["text"][:200],
+                 "tags": d.get("tags", []), "score": round(d.get("score", 0), 3)}
+                for d in docs[:3]
+            ],
+        })
+    except Exception:
+        print(f"[rag_error] {_tb.format_exc()}", flush=True)
+
+    # --- Active learning (Sprint 4) ---
+    al_mgr = state.get("active_learning")
+    if al_mgr:
+        try:
+            from pulse.latent import FieldLatentState
+            from pulse.messages import ActionMessage as AM
+
+            latent_obj = FieldLatentState.from_dict(latent_data)
+            actions_objs = [
+                AM(
+                    sender=a["sender"], timestamp=a["timestamp"],
+                    plant_id=a["plant_id"], action_type=a["action_type"],
+                    action_params=a.get("action_params", {}),
+                    expected_information_gain=a.get("expected_information_gain", 0),
+                    expected_utility=a.get("expected_utility", 0),
+                )
+                for a in result.get("actions", [])
+            ]
+            # Reconstruct cross-exam KL from result
+            cross_msgs = result.get("cross_exam", [])
+            kl_per_plant: dict[int, float] = {}
+            for m in cross_msgs:
+                for pid_s, kl in m.get("per_plant_disagreement", {}).items():
+                    pid = int(pid_s)
+                    kl_per_plant[pid] = max(kl_per_plant.get(pid, 0.0), float(kl))
+
+            al_mgr.process_inference_results(
+                src_path, latent_obj, actions_objs, kl_per_plant,
+                anomaly_scores=result.get("anomaly_scores"),
+            )
+            broadcast("active_learning_update", al_mgr.summary())
+        except Exception:
+            print(f"[active_learning_error] {_tb.format_exc()}", flush=True)
+
+    # --- Temporal diff (Sprint 4) ---
+    prev_path = state.get("previous_frame_path")
+    if prev_path and Path(src_path).exists() and Path(prev_path).exists():
+        try:
+            from pulse.temporal import compute_frame_diff
+
+            bboxes = [tuple(p["bbox"]) for p in latent_data.get("plants", [])]
+            pids = [p["plant_id"] for p in latent_data.get("plants", [])]
+            diff = compute_frame_diff(
+                src_path, prev_path, bboxes, pids, use_optical_flow=False,
+            )
+            broadcast("temporal_diff", {
+                "per_plant_changes": {
+                    int(pid): {
+                        "changed": sc.changed,
+                        "combined_score": round(sc.combined_score, 3),
+                        "pixel_diff": round(sc.pixel_diff_score, 3),
+                    }
+                    for pid, sc in diff.per_plant_changes.items()
+                },
+                "escalated": diff.escalated_plant_ids,
+            })
+        except Exception:
+            print(f"[temporal_diff_error] {_tb.format_exc()}", flush=True)
+    state["previous_frame_path"] = src_path
+
+    return result
 
 
 def _to_jsonable(o: Any) -> Any:

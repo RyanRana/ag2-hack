@@ -11,8 +11,7 @@ dependencies = [
     "torch>=2.2",
     "torchvision>=0.17",
     "transformers>=4.40",
-    "ultralytics>=8.1",
-    "ultralyticsplus>=0.1.0",
+    "ultralytics>=8.0.225",
     "segment-anything>=1.0",
 
     # Image / array
@@ -34,6 +33,10 @@ dependencies = [
     "huggingface-hub>=0.22",
     "datasets>=2.18",
     "requests>=2.31",
+
+    # RAG
+    "faiss-cpu>=1.7",
+    "sentence-transformers>=2.6",
 
     # Config
     "python-dotenv>=1.0",

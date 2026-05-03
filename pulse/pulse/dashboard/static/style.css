@@ -1,234 +1,88 @@
+/* ----------------------------------------------------------------------
+ * Pulse dashboard — runtime-injected class styles.
+ *
+ * The page chrome (header, panels, KPI strip, message stream container) is
+ * styled with Tailwind utilities directly in index.html. The rules below
+ * cover everything that app.js injects at runtime — bbox overlays, agent
+ * rows, intervention bars, action cards, etc. — and ride on the shadcn
+ * theme tokens (--primary, --background, --destructive, …) so the dark/
+ * light toggle just works.
+ * ---------------------------------------------------------------------- */
+
+/* Domain colors — kept as fixed hues so weed/disease/water/healthy reads
+ * the same in either theme (these are diagnostic semantics, not chrome). */
 :root {
-  /* Ollama-inspired light palette: near-white surfaces, warm-neutral
-     borders, restrained accent. Keeps chart colours saturated enough to
-     still pop against the page. */
-  --bg: #fafaf9;
-  --bg-elev: #ffffff;
-  --bg-elev-2: #f5f5f4;
-  --border: #e7e5e4;
-  --border-strong: #d6d3d1;
-  --text: #1c1917;
-  --text-dim: #57534e;
-  --text-faint: #a8a29e;
-  --accent: #2563eb;
-  --warn: #b45309;
-  --ok: #15803d;
-  --flag: #b91c1c;
-  --weed: #be185d;
-  --disease: #c2410c;
-  --healthy: #15803d;
-  --nutrient: #a16207;
-  --water: #0e7490;
-  --pest: #7e22ce;
-  --ambiguous: #78716c;
-  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --pulse-weed:      #d35f9c;
+  --pulse-disease:   #d39c5f;
+  --pulse-water:     #5fc8d3;
+  --pulse-nutrient:  #c8c85a;
+  --pulse-pest:      #b35fd3;
+  --pulse-healthy:   #82c85a;
+  --pulse-ambiguous: #a8a29e;
+  --pulse-flag:      var(--destructive);
+  --pulse-warn:      #d39c5f;
+  --pulse-ok:        #82c85a;
+  --pulse-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
+
+/* ===========================
+   GLOBALS
+   =========================== */
 
 * { box-sizing: border-box; }
 
-body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  font-size: 14px;
-  line-height: 1.5;
-  min-height: 100vh;
-}
+.text-dim { color: var(--muted-foreground); }
+.warn     { color: var(--pulse-warn); }
+.num      { color: var(--primary); font-weight: 600; }
+.alt      { color: var(--pulse-ok); font-weight: 500; }
 
-header {
-  border-bottom: 1px solid var(--border);
-  padding: 14px 24px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-family: var(--mono);
-  font-size: 13px;
-  background: var(--bg);
-  position: sticky;
-  top: 0;
-  z-index: 10;
-}
-
-header .live::before {
+#conn-state.live::before {
   content: "●";
-  color: var(--ok);
+  color: var(--pulse-ok);
   margin-right: 8px;
-  animation: pulse 1.5s ease-in-out infinite;
+  animation: pulse-dot 1.5s ease-in-out infinite;
 }
-
-@keyframes pulse {
+@keyframes pulse-dot {
   0%, 100% { opacity: 1; transform: scale(1); }
   50%      { opacity: 0.4; transform: scale(0.8); }
 }
 
-.text-dim { color: var(--text-dim); }
+/* Subtle scrollbar */
+.custom-scroll::-webkit-scrollbar,
+#msg-stream::-webkit-scrollbar { width: 8px; height: 8px; }
+.custom-scroll::-webkit-scrollbar-thumb,
+#msg-stream::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+.custom-scroll::-webkit-scrollbar-thumb:hover,
+#msg-stream::-webkit-scrollbar-thumb:hover { background: var(--muted-foreground); }
 
-.layout {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 1px;
-  padding: 1px;
-  background: var(--border);
-}
+/* ===========================
+   FIELD CANVAS / OVERLAYS
+   =========================== */
 
-.panel {
-  background: var(--bg-elev);
-  padding: 18px 24px;
-}
-
-.panel h2 {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--text-dim);
-  margin: 0 0 14px 0;
-  font-weight: 500;
-  font-family: var(--mono);
+.field-canvas-wrap {
+  position: relative;
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
+  background: var(--muted);
+  overflow: hidden;
+  min-height: 360px;
 }
 
-/* Stream controls (replaces old gallery-first flow) */
-.stream-controls {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 14px;
-  font-family: var(--mono);
-  font-size: 12px;
-}
-.stream-controls button {
-  background: var(--bg-elev-2);
-  color: var(--text);
-  border: 1px solid var(--border-strong);
-  padding: 6px 14px;
-  font-family: var(--mono);
-  cursor: pointer;
-  font-size: 12px;
-}
-.stream-controls button.primary {
-  background: var(--accent);
-  color: #ffffff;
-  border-color: var(--accent);
-  font-weight: 600;
-}
-.stream-controls button.primary.streaming {
-  background: var(--flag);
-  border-color: var(--flag);
-  color: #ffffff;
-}
-.stream-controls button:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-.stream-controls button:hover:not(:disabled) { border-color: var(--accent); }
-
-.upload-fold {
-  margin-left: auto;
-  font-size: 11px;
-}
-.upload-fold[open] { padding-left: 6px; }
-.upload-fold summary { cursor: pointer; }
-
-.actions-panel { background: var(--bg-elev); }
-.actions-summary {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.actions-summary .action-card {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 14px 18px;
-  background: var(--bg-elev-2);
-  border-left: 4px solid var(--accent);
-  font-family: var(--mono);
-  font-size: 13px;
-}
-.actions-summary .action-card .icon {
-  font-size: 20px;
-  width: 28px;
-  text-align: center;
-}
-.actions-summary .action-card .copy { flex: 1; }
-.actions-summary .action-card .copy .head {
-  color: var(--text);
-  font-weight: 500;
-  margin-bottom: 4px;
-}
-.actions-summary .action-card .copy .why {
-  color: var(--text-dim);
-  font-size: 11px;
-}
-.actions-summary .action-card .count {
-  color: var(--text);
-  font-size: 18px;
-  font-weight: 600;
-  font-family: var(--mono);
-  text-align: right;
-  min-width: 40px;
-}
-.actions-summary .action-card.weed       { border-left-color: var(--weed); }
-.actions-summary .action-card.disease    { border-left-color: var(--disease); }
-.actions-summary .action-card.water      { border-left-color: var(--water); }
-.actions-summary .action-card.nutrient   { border-left-color: var(--nutrient); }
-.actions-summary .action-card.pest       { border-left-color: var(--pest); }
-.actions-summary .action-card.healthy    { border-left-color: var(--healthy); }
-.actions-summary .action-card.review     { border-left-color: var(--warn); }
-.actions-summary .action-card.veto       { border-left-color: var(--flag); }
-.actions-summary .actions-empty { color: var(--text-faint); font-style: italic; padding: 14px 18px; }
-.actions-summary .actions-empty.small { padding: 8px 0; font-size: 12px; }
-
-.actions-section-title {
-  font-family: var(--mono);
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  font-size: 10px;
-  color: var(--text-dim);
-  padding: 6px 0;
-  margin-top: 10px;
-  border-bottom: 1px solid var(--border);
-}
-.actions-flagged .actions-section-title { color: var(--warn); }
-
-.actions-summary .action-card.veto {
-  border-left-color: var(--flag);
-  box-shadow: inset 4px 0 16px -4px var(--flag);
-}
-.actions-summary .action-card { cursor: pointer; transition: background 0.15s; }
-.actions-summary .action-card:hover { background: var(--bg-elev); }
-.actions-summary .action-card .snap {
-  width: 64px;
-  height: 48px;
-  object-fit: cover;
-  border-radius: 2px;
-  border: 1px solid var(--border-strong);
-  flex-shrink: 0;
+#field-video {
+  width: 100%;
+  height: auto;
+  display: block;
+  background: var(--muted);
+  filter: saturate(1.12) contrast(1.04);
 }
 
-.action-row {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  padding: 5px 12px;
-  font-family: var(--mono);
-  font-size: 12px;
-  border-bottom: 1px solid var(--border);
-  color: var(--text-dim);
-}
-.action-row:last-child { border: 0; }
-.action-row .icon { width: 22px; }
-.action-row .head { flex: 1; color: var(--text); }
-.action-row .count { color: var(--text); font-weight: 600; }
-.action-row.weed .head    { color: var(--weed); }
-.action-row.disease .head { color: var(--disease); }
-.action-row.water .head   { color: var(--water); }
-.action-row.healthy .head { color: var(--healthy); }
-
-/* Heatmap aesthetics — soft blur for "halo" effect, mix-blend lets the
-   underlying greens show through. The animation gives a subtle pulse so
-   detections feel live rather than statically painted. */
 .heatmap-canvas {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  width: 100%;
+  height: 100%;
   filter: blur(1px);
   opacity: 0.85;
   animation: heat-pulse 2.6s ease-in-out infinite;
@@ -238,165 +92,13 @@ header .live::before {
   50%      { opacity: 0.95; }
 }
 
-/* Mini action pills shown on every frame */
-.last-frame-strip {
-  background: var(--bg-elev-2);
-  margin-bottom: 8px;
-  padding: 10px 14px;
-  border-left: 3px solid var(--accent);
-}
-.mini-pills { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
-.mini-pill {
-  padding: 4px 10px;
-  background: var(--bg-elev);
-  border: 1px solid var(--border-strong);
-  border-radius: 14px;
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--text);
-}
-.mini-pill.weed     { border-color: var(--weed);    color: var(--weed); }
-.mini-pill.disease  { border-color: var(--disease); color: var(--disease); }
-.mini-pill.water    { border-color: var(--water);   color: var(--water); }
-.mini-pill.healthy  { border-color: var(--healthy); color: var(--healthy); }
-.mini-pill.review   { border-color: var(--warn);    color: var(--warn); }
-
-.actions-section-title.flagged { color: var(--warn); margin-top: 14px; }
-
-/* Species pill on bbox label */
-.bbox-label .species {
-  display: inline-block;
-  padding: 0 5px;
-  margin-right: 4px;
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  border-radius: 2px;
-  background: var(--text);
-  color: var(--bg);
-}
-.bbox-label .species.weed { background: var(--weed); color: #fff; }
-.bbox-label .species.crop { background: var(--healthy); color: #fff; }
-
-/* Stream button warming/disabled state */
-.stream-controls button:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-  background: var(--bg-elev-2);
-  color: var(--text-dim);
-  border-color: var(--border);
-}
-
-/* KPI unit suffix */
-.kpi-tile .kpi-num .unit {
-  font-size: 13px;
-  color: var(--text-dim);
-  margin-left: 4px;
-}
-
-/* Heatmap overlay layer — no blend mode in light theme. The canvas paints
-   semi-transparent radial gradients directly over the video; mix-blend
-   modes either blow out (screen) or muddy them (multiply) on light pages. */
-.heatmap-canvas {
+.drift-canvas {
   position: absolute;
   inset: 0;
   pointer-events: none;
   width: 100%;
   height: 100%;
-  opacity: 0.85;
-}
-
-.demo-gallery {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-bottom: 14px;
-}
-
-.demo-gallery .thumb {
-  position: relative;
-  width: 130px;
-  height: 100px;
-  border: 1px solid var(--border-strong);
-  background: var(--bg-elev-2);
-  overflow: hidden;
-  cursor: pointer;
-  transition: border-color 0.2s, transform 0.2s;
-  font-family: var(--mono);
-  font-size: 9px;
-  color: var(--text-dim);
-}
-
-.demo-gallery .thumb img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
-.demo-gallery .thumb:hover {
-  border-color: var(--accent);
-  transform: translateY(-1px);
-}
-
-.demo-gallery .thumb .caption {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  background: rgba(255, 255, 255, 0.92);
-  padding: 2px 6px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: var(--text);
-}
-
-.demo-gallery .thumb.running {
-  border-color: var(--ok);
-  box-shadow: 0 0 12px var(--ok);
-}
-
-.upload-row {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  margin-bottom: 12px;
-  font-family: var(--mono);
-  font-size: 12px;
-}
-
-.upload-row input[type=file] { color: var(--text-dim); }
-
-.upload-row button {
-  background: var(--bg-elev-2);
-  color: var(--text);
-  border: 1px solid var(--border-strong);
-  padding: 6px 14px;
-  font-family: var(--mono);
-  cursor: pointer;
-}
-
-.upload-row button:hover { border-color: var(--accent); color: var(--accent); }
-
-.field-canvas-wrap {
-  position: relative;
-  width: 100%;
-  background: var(--bg-elev-2);
-  border-radius: 4px;
-  overflow: hidden;
-  min-height: 360px;
-  border: 1px solid var(--border);
-}
-
-#field-video {
-  width: 100%;
-  height: auto;
-  display: block;
-  background: var(--bg-elev-2);
-  /* Punch up the source frames a touch — saturation + contrast helps weeds
-     and yellowing leaves stand out from the soil background. */
-  filter: saturate(1.12) contrast(1.04);
+  mix-blend-mode: screen;
 }
 
 .bbox-layer {
@@ -409,400 +111,532 @@ header .live::before {
   position: absolute;
   border: 2px solid currentColor;
   pointer-events: none;
-  transition: border-color 0.3s;
+  border-radius: 2px;
+  transition: border-color 0.3s, box-shadow 0.3s;
 }
-
 .bbox-overlay.disputed {
   animation: dispute-pulse 1.4s ease-in-out infinite;
 }
-
 .bbox-overlay.physics-veto {
-  border-color: var(--flag);
+  border-color: var(--pulse-flag);
   border-style: dashed;
-  box-shadow: 0 0 16px var(--flag);
+  box-shadow: 0 0 18px var(--pulse-flag);
 }
-
 @keyframes dispute-pulse {
   0%, 100% { box-shadow: 0 0 4px currentColor; }
-  50%      { box-shadow: 0 0 18px currentColor; }
+  50%      { box-shadow: 0 0 22px currentColor; }
 }
 
 .bbox-label {
   position: absolute;
-  background: rgba(255, 255, 255, 0.92);
+  background: color-mix(in oklab, var(--background) 88%, transparent);
+  backdrop-filter: blur(6px);
   color: currentColor;
   padding: 2px 6px;
-  font-family: var(--mono);
+  font-family: var(--pulse-mono);
   font-size: 10px;
   border: 1px solid currentColor;
+  border-radius: 3px;
   white-space: nowrap;
   pointer-events: none;
   transform: translateY(-100%);
 }
-
-.drift-canvas {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  width: 100%;
-  height: 100%;
-  mix-blend-mode: screen;
+.bbox-label .species {
+  display: inline-block;
+  padding: 0 5px;
+  margin-right: 4px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  border-radius: 3px;
+  background: var(--foreground);
+  color: var(--background);
 }
-
-.wind-indicator {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  background: rgba(255, 255, 255, 0.92);
-  border: 1px solid var(--border-strong);
-  padding: 8px 12px;
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--text-dim);
-  z-index: 5;
-}
+.bbox-label .species.weed { background: var(--pulse-weed); color: #fff; }
+.bbox-label .species.crop { background: var(--pulse-healthy); color: #1c1917; }
 
 .wind-indicator .arrow {
-  display: inline-block;
-  color: var(--accent);
-  font-size: 16px;
   transform-origin: center;
   transition: transform 0.5s ease;
-  margin-right: 6px;
 }
 
-.split-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1px;
-  background: var(--border);
-}
+/* ===========================
+   AGENT ROWS
+   =========================== */
 
-.plan-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1px;
-  background: var(--border);
-  align-items: stretch;
-}
-
-.plan-row .field-panel {
-  min-width: 0;
-}
-
-.side-data {
-  display: grid;
-  grid-auto-rows: min-content;
-  gap: 1px;
-  background: var(--border);
-  min-width: 0;
-  overflow-y: auto;
-  max-height: calc(100vh - 60px);
-}
-
-@media (max-width: 1100px) {
-  .plan-row {
-    grid-template-columns: 1fr;
-  }
-  .side-data {
-    max-height: none;
-  }
-}
-
-.agent-row, .interv-row {
+.agent-row {
   display: flex;
   align-items: center;
-  padding: 6px 0;
-  font-family: var(--mono);
-  font-size: 13px;
-  border-bottom: 1px solid var(--border);
-}
-
-.agent-row:last-child, .interv-row:last-child { border: 0; }
-.agent-row .name { width: 200px; color: var(--text-dim); }
-.agent-row .paradigm { width: 80px; font-size: 10px; color: var(--text-faint); text-transform: uppercase; }
-.agent-row .status { margin-left: auto; }
-.agent-row .status.ok { color: var(--ok); }
-.agent-row .status.pending { color: var(--text-faint); }
-.agent-row .status.running { color: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
-.agent-row .status.skipped { color: var(--text-faint); opacity: 0.5; }
-.agent-row .status.fail { color: var(--flag); }
-
-.interv-row .label {
-  width: 200px;
-  color: var(--text);
-}
-
-.interv-row .bar {
-  width: 200px;
-  height: 6px;
-  background: var(--border-strong);
-  margin: 0 14px;
-  border-radius: 1px;
-  overflow: hidden;
-}
-
-.interv-row .bar-fill {
-  height: 100%;
-  background: var(--accent);
-  transition: width 0.5s ease-out;
-}
-
-.interv-row .count {
-  width: 50px;
-  text-align: right;
-  color: var(--text-dim);
-}
-
-/* Why-not-spray + KPI strip */
-.why-card { padding: 4px 0; }
-.why-empty { color: var(--text-faint); font-style: italic; padding: 14px 0; }
-.why-row {
-  font-family: var(--mono);
+  gap: 8px;
+  padding: 8px 0;
+  font-family: var(--pulse-mono);
   font-size: 12px;
-  color: var(--text);
-  display: flex;
-  align-items: flex-start;
-  gap: 14px;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
 }
-.why-row:last-child { border: 0; }
-.why-row .icon { font-size: 22px; }
-.why-row .body { flex: 1; }
-.why-row .body .head { color: var(--text); margin-bottom: 4px; }
-.why-row .body .stat { color: var(--text-dim); font-size: 11px; line-height: 1.5; }
-.why-row .body .stat .num { color: var(--flag); font-weight: 600; }
-
-.kpi-strip {
-  display: flex;
-  gap: 1px;
-  background: var(--border);
-  padding: 1px;
-}
-.kpi-tile {
-  flex: 1;
-  background: var(--bg-elev-2);
-  padding: 16px 20px;
-  font-family: var(--mono);
-  text-align: left;
-}
-.kpi-tile.big { flex: 1.5; background: var(--bg-elev); }
-.kpi-tile .kpi-label {
+.agent-row:last-child { border: 0; }
+.agent-row .name      { width: 145px; color: var(--foreground); font-weight: 500; }
+.agent-row .paradigm  {
+  width: 70px;
+  font-size: 9px;
+  color: var(--muted-foreground);
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--text-dim);
-  font-size: 10px;
-  margin-bottom: 6px;
-}
-.kpi-tile .kpi-num {
-  font-size: 26px;
-  font-weight: 300;
-  color: var(--text);
-}
-.kpi-tile.big .kpi-num { color: var(--ok); font-size: 32px; }
-
-.kpi-row {
-  display: flex;
-  align-items: center;
-  gap: 24px;
-  padding: 24px;
-  background: var(--bg-elev-2);
-}
-
-.kpi-label {
-  font-family: var(--mono);
-  font-size: 12px;
-  color: var(--text-dim);
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  width: 280px;
-}
-
-.kpi-bar {
-  flex: 1;
-  height: 14px;
-  background: var(--border-strong);
-  border-radius: 1px;
-  overflow: hidden;
-}
-
-.kpi-fill {
-  height: 100%;
-  background: linear-gradient(90deg, var(--healthy), var(--ok));
-  transition: width 0.8s cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-.kpi-value {
-  width: 90px;
-  text-align: right;
-  font-family: var(--mono);
-  font-size: 28px;
-  font-weight: 300;
-  color: var(--ok);
-}
-
-.reduction-breakdown {
-  background: var(--bg-elev);
-  padding: 12px 24px;
-  font-family: var(--mono);
-  font-size: 12px;
-}
-
-.reduction-row {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 4px 0;
-}
-
-.reduction-row > span:first-child {
-  width: 200px;
-  color: var(--text-dim);
-}
-
-.reduction-row .bar {
-  flex: 1;
-  height: 6px;
-  background: var(--border-strong);
-  overflow: hidden;
-}
-
-.reduction-row .fill {
-  display: block;
-  height: 100%;
-  background: var(--accent);
-  width: 0%;
-  transition: width 0.6s ease-out;
-}
-
-.reduction-row .value {
-  width: 60px;
-  text-align: right;
-  color: var(--text);
-}
-
-#ecology-chart {
-  width: 100%;
-  height: 200px;
-  background: var(--bg);
+  padding: 2px 6px;
   border: 1px solid var(--border);
+  border-radius: 3px;
+  text-align: center;
 }
-
-.legend {
-  margin-top: 8px;
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--text-dim);
-  display: flex;
-  gap: 16px;
-}
-
-.legend .dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  background: var(--c, var(--accent));
-  margin-right: 6px;
-  vertical-align: middle;
-}
-
-.biophysics-readout {
-  display: grid;
-  grid-template-columns: max-content 1fr max-content 1fr;
-  gap: 8px 16px;
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--text-dim);
-}
-
-.biophysics-readout .bio-value { color: var(--text); }
-
-.msg-panel { padding: 12px 24px; }
-
-#msg-stream {
-  font-family: var(--mono);
-  font-size: 12px;
-  color: var(--text);
-  max-height: 280px;
-  overflow-y: auto;
-  background: var(--bg-elev-2);
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  white-space: pre;
-}
-
-#msg-stream .row { padding: 1px 0; }
-#msg-stream .row .ts { color: var(--text-faint); margin-right: 12px; }
-#msg-stream .row .who { color: var(--text); margin-right: 12px; }
-#msg-stream .row .kind { color: var(--accent); margin-right: 12px; }
-#msg-stream .row.warn .kind { color: var(--warn); }
-#msg-stream .row.flag .kind { color: var(--flag); }
-#msg-stream .row.ok .tag { color: var(--ok); }
-#msg-stream .row .tag {
-  display: inline-block;
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  margin-right: 10px;
-  color: var(--text-faint);
-}
-
-/* --- Collapsible panel (AGENT CONSTRAINTS, closed by default) --- */
-.panel.collapsible { padding: 0; }
-.panel.collapsible > summary {
-  list-style: none;
-  cursor: pointer;
-  padding: 14px 24px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  user-select: none;
-}
-.panel.collapsible > summary::-webkit-details-marker { display: none; }
-.panel.collapsible > summary h2 { margin: 0; }
-.panel.collapsible > summary .chev {
-  font-family: var(--mono);
-  font-size: 12px;
-  color: var(--text-faint);
-  transition: transform 0.15s ease;
-}
-.panel.collapsible[open] > summary .chev { transform: rotate(90deg); }
-.panel.collapsible > #agent-rows { padding: 0 24px 18px 24px; }
-
-/* Model-reference line attached to each agent row */
 .agent-row .model-ref {
   flex: 1;
-  font-family: var(--mono);
-  font-size: 10px;
-  color: var(--text-faint);
+  font-size: 9.5px;
+  color: var(--muted-foreground);
   text-align: left;
-  padding-left: 8px;
+  padding-left: 4px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.agent-row .model-ref a { color: var(--text-faint); text-decoration: none; }
-.agent-row .model-ref a:hover { color: var(--accent); text-decoration: underline; }
-.agent-row .name { width: 150px; }
-
-/* Why-not-spray block embedded inside a flagged action card */
-.action-card .why-detail {
-  margin-top: 4px;
-  font-family: var(--mono);
-  font-size: 10.5px;
-  color: var(--text-dim);
-  line-height: 1.55;
-  background: var(--bg-elev);
-  border-left: 2px solid var(--flag);
-  padding: 6px 10px;
+.agent-row .model-ref a { color: var(--muted-foreground); text-decoration: none; }
+.agent-row .model-ref a:hover { color: var(--primary); text-decoration: underline; }
+.agent-row .status {
+  margin-left: auto;
+  font-size: 14px;
+  width: 18px;
+  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
-.action-card .why-detail .num { color: var(--flag); font-weight: 600; }
-.action-card .why-detail .alt { color: var(--ok); font-weight: 600; }
+.agent-row .status i { font-size: 13px; line-height: 1; }
+.agent-row .status.running i { font-size: 8px; } /* small filled dot */
+.agent-row .status.ok      { color: var(--pulse-ok); }
+.agent-row .status.pending { color: var(--muted-foreground); opacity: 0.5; }
+.agent-row .status.running { color: var(--primary); animation: pulse-dot 1.2s ease-in-out infinite; }
+.agent-row .status.skipped { color: var(--muted-foreground); opacity: 0.4; }
+.agent-row .status.fail    { color: var(--pulse-flag); }
 
-/* Subtle shadow lift for elevated panels in light mode */
-.panel { box-shadow: 0 1px 0 rgba(0,0,0,0.02); }
-.kpi-tile.big .kpi-num { color: var(--ok); }
+/* ===========================
+   INTERVENTION BARS
+   =========================== */
 
-header { background: var(--bg-elev); }
+.interv-row {
+  display: flex;
+  align-items: center;
+  padding: 7px 0;
+  font-family: var(--pulse-mono);
+  font-size: 12px;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+}
+.interv-row:last-child { border: 0; }
+.interv-row .label    { flex: 0 0 160px; color: var(--foreground); }
+.interv-row .bar      {
+  flex: 1;
+  height: 6px;
+  background: var(--muted);
+  margin: 0 12px;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.interv-row .bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary), color-mix(in oklab, var(--primary) 70%, var(--chart-2)));
+  border-radius: 3px;
+  transition: width 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.interv-row .count {
+  width: 36px;
+  text-align: right;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ===========================
+   RECOMMENDED ACTIONS
+   =========================== */
+
+.actions-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.actions-summary .actions-empty {
+  color: var(--muted-foreground);
+  font-style: italic;
+  padding: 14px 18px;
+  font-family: var(--pulse-mono);
+  font-size: 12px;
+}
+
+/* This-frame mini summary */
+.last-frame-strip {
+  background: color-mix(in oklab, var(--muted) 70%, transparent);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--primary);
+  border-radius: var(--radius);
+  margin-bottom: 6px;
+  padding: 10px 14px;
+}
+.mini-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.mini-pill {
+  padding: 3px 10px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-family: var(--pulse-mono);
+  font-size: 11px;
+  color: var(--foreground);
+  font-variant-numeric: tabular-nums;
+}
+.mini-pill.weed     { border-color: color-mix(in oklab, var(--pulse-weed) 50%, var(--border));    color: var(--pulse-weed); }
+.mini-pill.disease  { border-color: color-mix(in oklab, var(--pulse-disease) 50%, var(--border)); color: var(--pulse-disease); }
+.mini-pill.water    { border-color: color-mix(in oklab, var(--pulse-water) 50%, var(--border));   color: var(--pulse-water); }
+.mini-pill.healthy  { border-color: color-mix(in oklab, var(--pulse-healthy) 50%, var(--border)); color: var(--pulse-healthy); }
+.mini-pill.review   { border-color: color-mix(in oklab, var(--pulse-warn) 50%, var(--border));    color: var(--pulse-warn); }
+.mini-pill.nutrient { border-color: color-mix(in oklab, var(--pulse-nutrient) 50%, var(--border)); color: var(--pulse-nutrient); }
+
+.actions-section-title {
+  font-family: var(--pulse-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 10px;
+  color: var(--muted-foreground);
+  padding: 8px 4px 6px;
+  margin-top: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.actions-section-title.flagged { color: var(--pulse-warn); margin-top: 12px; }
+
+/* Action cards */
+.actions-summary .action-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  background: color-mix(in oklab, var(--muted) 50%, transparent);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--primary);
+  border-radius: var(--radius);
+  font-family: var(--pulse-mono);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.15s;
+}
+.actions-summary .action-card:hover {
+  background: color-mix(in oklab, var(--muted) 80%, transparent);
+  transform: translateX(2px);
+}
+.actions-summary .action-card .icon {
+  font-size: 22px;
+  width: 30px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.actions-summary .action-card .copy { flex: 1; min-width: 0; }
+.actions-summary .action-card .copy .head {
+  color: var(--foreground);
+  font-weight: 500;
+  font-size: 12.5px;
+  margin-bottom: 3px;
+}
+.actions-summary .action-card .copy .why {
+  color: var(--muted-foreground);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.actions-summary .action-card .count {
+  color: var(--foreground);
+  font-size: 18px;
+  font-weight: 600;
+  text-align: right;
+  min-width: 40px;
+  font-variant-numeric: tabular-nums;
+}
+.actions-summary .action-card .snap {
+  width: 64px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+/* Per-category accent */
+.actions-summary .action-card.weed     { border-left-color: var(--pulse-weed); }
+.actions-summary .action-card.disease  { border-left-color: var(--pulse-disease); }
+.actions-summary .action-card.water    { border-left-color: var(--pulse-water); }
+.actions-summary .action-card.nutrient { border-left-color: var(--pulse-nutrient); }
+.actions-summary .action-card.pest     { border-left-color: var(--pulse-pest); }
+.actions-summary .action-card.healthy  { border-left-color: var(--pulse-healthy); }
+.actions-summary .action-card.review   { border-left-color: var(--pulse-warn); }
+.actions-summary .action-card.veto {
+  border-left-color: var(--pulse-flag);
+  background: color-mix(in oklab, var(--pulse-flag) 8%, var(--muted));
+  box-shadow: inset 4px 0 16px -4px var(--pulse-flag);
+}
+
+/* Embedded "why not spray" detail */
+.action-card .why-detail {
+  margin-top: 6px;
+  font-family: var(--pulse-mono);
+  font-size: 10.5px;
+  color: var(--muted-foreground);
+  line-height: 1.55;
+  background: color-mix(in oklab, var(--card) 80%, transparent);
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--pulse-flag);
+  padding: 8px 10px;
+  border-radius: 4px;
+}
+.action-card .why-detail b   { color: var(--foreground); }
+.action-card .why-detail .num { color: var(--pulse-flag); font-weight: 600; }
+.action-card .why-detail .alt { color: var(--pulse-ok); font-weight: 600; }
+
+/* ===========================
+   KPI STRIP — extra polish
+   =========================== */
+
+.kpi-tile { transition: background 0.2s; }
+.kpi-tile:hover { background: color-mix(in oklab, var(--card) 92%, var(--primary)); }
+.kpi-tile.big::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at 100% 0%, color-mix(in oklab, var(--primary) 15%, transparent), transparent 60%);
+}
+.kpi-tile .kpi-num .unit {
+  font-size: 13px;
+  color: var(--muted-foreground);
+  margin-left: 4px;
+  font-weight: 400;
+}
+
+/* ===========================
+   STREAM BUTTON STATES
+   =========================== */
+
+#stream-btn.streaming {
+  background: var(--pulse-flag);
+  color: #fff;
+  box-shadow: 0 0 0 0 color-mix(in oklab, var(--pulse-flag) 60%, transparent);
+  animation: streaming-pulse 1.6s ease-in-out infinite;
+}
+@keyframes streaming-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--pulse-flag) 50%, transparent); }
+  50%      { box-shadow: 0 0 0 6px color-mix(in oklab, var(--pulse-flag) 0%, transparent); }
+}
+
+/* ===========================
+   MESSAGE STREAM
+   =========================== */
+
+#msg-stream { white-space: pre-wrap; }
+#msg-stream .row {
+  padding: 2px 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  border-bottom: 1px dashed color-mix(in oklab, var(--border) 50%, transparent);
+}
+#msg-stream .row:last-child { border-bottom: 0; }
+#msg-stream .row .ts {
+  color: var(--muted-foreground);
+  opacity: 0.6;
+  font-size: 10.5px;
+  flex-shrink: 0;
+}
+#msg-stream .row .tag {
+  display: inline-block;
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  color: var(--muted-foreground);
+  flex-shrink: 0;
+  font-weight: 600;
+}
+#msg-stream .row.ok   .tag { color: var(--pulse-ok);   border-color: color-mix(in oklab, var(--pulse-ok) 40%, var(--border)); }
+#msg-stream .row.warn .tag { color: var(--pulse-warn); border-color: color-mix(in oklab, var(--pulse-warn) 40%, var(--border)); }
+#msg-stream .row.flag .tag { color: var(--pulse-flag); border-color: color-mix(in oklab, var(--pulse-flag) 40%, var(--border)); background: color-mix(in oklab, var(--pulse-flag) 10%, transparent); }
+#msg-stream .row.warn { background: color-mix(in oklab, var(--pulse-warn) 5%, transparent); }
+#msg-stream .row.flag { background: color-mix(in oklab, var(--pulse-flag) 7%, transparent); }
+#msg-stream .row b { color: var(--foreground); font-weight: 600; }
+
+/* ===========================
+   MISC LEGACY (kept for safety)
+   =========================== */
+
+.legend { display: flex; gap: 16px; font-family: var(--pulse-mono); font-size: 11px; color: var(--muted-foreground); margin-top: 8px; }
+.legend .dot { display: inline-block; width: 8px; height: 8px; background: var(--c, var(--primary)); margin-right: 6px; vertical-align: middle; border-radius: 999px; }
+
+/* Side-data scroll on tall screens */
+@media (min-width: 1024px) {
+  .side-data { max-height: calc(100vh - 84px); overflow-y: auto; padding-right: 2px; }
+}
+
+/* ===========================
+   PHOSPHOR ICON ALIGNMENT
+   =========================== */
+
+/* Make icons inherit color and align with adjacent text.
+   Wrapped in :where() so specificity stays 0 — Tailwind's `.hidden`
+   utility (display: none) still wins over this baseline. */
+:where(i[class*="ph-"], i[class^="ph"]) {
+  display: inline-block;
+  font-style: normal;
+  line-height: 1;
+  vertical-align: -0.125em;
+  color: inherit;
+}
+
+/* Action card icon column — big, centered, primary tint via inherit */
+.actions-summary .action-card > .icon i { font-size: 22px; line-height: 1; }
+
+/* Mini-pills — slightly smaller inline icon with a hair of right margin */
+.mini-pill i { font-size: 12px; margin-right: 4px; vertical-align: -0.15em; }
+
+/* Section title icons (flagged, this-frame) */
+.actions-section-title i { font-size: 12px; margin-right: 4px; vertical-align: -0.1em; }
+
+/* Stream button keeps the primary-foreground color via inherit */
+#stream-btn i { color: inherit; }
+
+/* Theme toggle — show one icon at a time. Scoped via #theme-toggle so
+   specificity beats Phosphor's `.ph { display: inline-block }`. */
+#theme-toggle .theme-icon-light { display: none; }
+#theme-toggle .theme-icon-dark  { display: inline-block; }
+html:not(.dark) #theme-toggle .theme-icon-dark  { display: none; }
+html:not(.dark) #theme-toggle .theme-icon-light { display: inline-block; }
+
+/* Wind arrow rotates via JS — keep transform origin centered */
+#wind-arrow { transform-origin: center; transition: transform 0.5s ease; }
+
+/* Message stream inline icons inherit row color */
+#msg-stream .row i { vertical-align: -0.12em; margin-right: 2px; }
+
+/* ===========================
+   SPRINT 1-4 UI EXTENSIONS
+   =========================== */
+
+/* --- Visual explanation overlay (Sprint 1) --- */
+.explain-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  opacity: 0.55;
+  mix-blend-mode: screen;
+  transition: opacity 0.3s;
+  z-index: 2;
+}
+html:not(.dark) .explain-overlay { mix-blend-mode: multiply; opacity: 0.5; }
+#explain-toggle { opacity: 0.5; transition: opacity 0.2s; }
+#explain-toggle.active { opacity: 1; }
+
+/* --- Temporal change highlight (Sprint 4) --- */
+.bbox-overlay.temporal-changed {
+  border-style: dashed !important;
+  border-color: #ff8c00 !important;
+  animation: temporal-pulse 1.0s ease-in-out infinite;
+}
+@keyframes temporal-pulse {
+  0%, 100% { box-shadow: 0 0 6px rgba(255,140,0,0.5); }
+  50%      { box-shadow: 0 0 20px rgba(255,140,0,0.8); }
+}
+
+/* --- Bbox label badges (Sprint 2/4) --- */
+.bbox-label .anomaly-badge {
+  display: inline-block;
+  padding: 0 4px;
+  margin-left: 3px;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  border-radius: 3px;
+  background: var(--destructive);
+  color: #fff;
+  text-transform: uppercase;
+}
+.bbox-label .growth-badge {
+  display: inline-block;
+  padding: 0 4px;
+  margin-left: 3px;
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  border-radius: 3px;
+  background: color-mix(in oklab, var(--muted) 80%, transparent);
+  color: var(--foreground);
+  border: 1px solid var(--border);
+}
+
+/* --- Agent row mode badge (Sprint 3) --- */
+.agent-row .mode-badge {
+  font-size: 8px;
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: 3px;
+  letter-spacing: 0.06em;
+  margin-left: 4px;
+  text-transform: uppercase;
+}
+.agent-row .mode-badge.local {
+  background: var(--pulse-ok);
+  color: #1c1917;
+}
+.agent-row .mode-badge.api {
+  background: var(--chart-2, #6366f1);
+  color: #fff;
+}
+
+/* --- Debate indicator (Sprint 3) --- */
+#debate-indicator {
+  font-family: var(--pulse-mono, ui-monospace, monospace);
+  font-size: 10px;
+  color: var(--muted-foreground);
+  padding: 6px 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.turn-dots {
+  display: inline-flex;
+  gap: 4px;
+}
+.turn-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--border);
+  transition: background 0.3s;
+}
+.turn-dot.active { background: var(--primary); }
+.turn-dot.done   { background: var(--pulse-ok); }
+
+/* --- Weather / RAG / Growth panels --- */
+.weather-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 0;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 40%, transparent);
+}
+.weather-row:last-child { border-bottom: 0; }
+.weather-row .weather-label { color: var(--muted-foreground); }
+.weather-row .weather-value { font-weight: 500; color: var(--foreground); }
+
+.rag-doc {
+  padding: 6px 0;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 40%, transparent);
+}
+.rag-doc:last-child { border-bottom: 0; }
+.rag-doc-title { color: var(--foreground); font-weight: 500; margin-bottom: 2px; }
+.rag-doc-score { color: var(--primary); font-size: 9px; }
+.rag-doc-text  { color: var(--muted-foreground); font-size: 10px; line-height: 1.4; }
+.rag-doc-tags  { color: var(--muted-foreground); font-size: 9px; margin-top: 2px; }
+
+/* --- Active learning badge in KPI --- */
+.kpi-tile.al-tile .kpi-num { color: var(--chart-2, #6366f1); }
