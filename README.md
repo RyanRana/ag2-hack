@@ -210,6 +210,32 @@ OPENAI_API_KEY=sk-...
 
 ---
 
+## Demos
+
+### OpenCV Evidence Agent — AG2 dispatch (CLI)
+
+Exercises the full AG2 conversational path through `SegmentationAgent`
+(`UserProxyAgent.initiate_chat` → `ChannelAgent._emit_constraint_reply`)
+without the dashboard, then saves an overlay PNG. The overlay pixels
+come from the same boolean masks (`leaf_mask`, `yellow_mask`,
+`edge_mask`, `contour_mask`) whose pixel counts produced the scalar
+log-likelihoods on the returned `ConstraintMessage` —
+*Explanation === Evidence*.
+
+```bash
+# Synthetic chlorotic swatch (no setup needed)
+python scripts/demo_opencv_evidence.py
+
+# Or your own image
+python scripts/demo_opencv_evidence.py --image path/to/leaf.jpg --out overlays/
+```
+
+The script prints per-plant top-2 conditions, log-likelihoods,
+residual + confidence, and the path to the rendered overlay PNG. No
+LLM API key is required for this demo path.
+
+---
+
 ## Tests
 
 ```bash
