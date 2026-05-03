@@ -60,25 +60,62 @@ Output ─── Per-Plant Actions ───────────────
 
 ### 10 Local Agents (no API calls)
 
-| # | Agent | Paradigm | Model / Method | Role |
-|---|-------|----------|----------------|------|
-| 1 | `WeedDetectorAgent` | ML | foduucom YOLOv8 | Weed/crop classification |
-| 2 | `DiseaseClassifierAgent` | ML | MobileNetV2 + temperature scaling | 38-class plant disease ID |
-| 3 | `HealthClassifierAgent` | ML | ViT binary + temperature scaling | Healthy vs unhealthy |
-| 4 | `SegmentationAgent` | CV | HSV/Canny/contour + evidence maps | Spatial evidence retention |
-| 5 | `AnomalyDetectorAgent` | CV | DINOv2 + PatchCore | Flags unknown conditions |
-| 6 | `GrowthStageAgent` | ML | ViT classifier (heuristic fallback) | Seedling/veg/flower/fruit → urgency |
-| 7 | `WeatherPriorAgent` | Physics | Open-Meteo API | Adjusts priors from weather context |
-| 8 | `WaterBalanceAgent` | Physics | Penman-Monteith + van Genuchten | Water stress vs disease disambiguation |
-| 9 | `PesticideFateAgent` | Physics | Gaussian plume + DT50 kinetics | Drift risk + persistence scoring |
-| 10 | `EcologicalDynamicsAgent` | Biology | Lotka-Volterra ODE + toxicity | Predator/pest population forecast |
+| # | Agent | Paradigm | Model / Method |
+|---|-------|----------|----------------|
+| 1 | `WeedDetectorAgent` | ML | `foduucom/plant-leaf-detection-and-classification` (YOLOv8, ~25MB) |
+| 2 | `DiseaseClassifierAgent` | ML | `linkanjarad/mobilenet_v2_1.0_224-plant-disease-identification` (MobileNetV2, ~14MB) |
+| 3 | `HealthClassifierAgent` | ML | `Diginsa/Plant-Disease-Detection-Project` (ViT, ~90MB) |
+| 4 | `SegmentationAgent` | CV | OpenCV HSV/Canny/contour (no neural net) |
+| 5 | `AnomalyDetectorAgent` | CV | `facebook/dinov2-base` + PatchCore (~350MB, lazy-loaded) |
+| 6 | `GrowthStageAgent` | ML | Heuristic (green ratio + size + bright regions) |
+| 7 | `WeatherPriorAgent` | Physics | Open-Meteo HTTP API + rule-based priors |
+| 8 | `WaterBalanceAgent` | Physics | FAO-56 Penman-Monteith + van Genuchten (math only) |
+| 9 | `PesticideFateAgent` | Physics | Gaussian plume drift + first-order DT50 (math only) |
+| 10 | `EcologicalDynamicsAgent` | Biology | Lotka-Volterra ODE solver + toxicity (math only) |
 
 ### 2 LLM Agents (OpenAI via AG2)
 
-| # | Agent | Paradigm | Backend | Role |
-|---|-------|----------|---------|------|
-| 11 | `VLMReasonerAgent` | ML/LLM | gpt-4o-mini (AG2 AssistantAgent) | Visual reasoning on disputed crops |
-| 12 | `SkepticAgent` | Meta | gpt-4o-mini (AG2 AssistantAgent) | Alternative hypothesis generation |
+| # | Agent | Paradigm | Backend |
+|---|-------|----------|---------|
+| 11 | `VLMReasonerAgent` | ML/LLM | OpenAI gpt-4o-mini via AG2 AssistantAgent |
+| 12 | `SkepticAgent` | Meta | OpenAI gpt-4o-mini via AG2 AssistantAgent |
+
+### What Each Agent Does
+
+**1. WeedDetectorAgent** — Runs YOLOv8 on the full frame to detect and classify plants as weed or crop. Produces bounding boxes and initial weed-vs-crop probabilities. This is Phase 0 detection — everything downstream operates on these crop regions.
+
+**2. DiseaseClassifierAgent** — Crops each plant's bounding box and runs MobileNetV2 trained on 38 PlantVillage disease classes (early blight, late blight, powdery mildew, rust, etc.). Maps the 38 fine-grained classes to Pulse's 7 condition labels. Temperature scaling (learned scalar T) calibrates the logits before softmax so the model doesn't dominate the posterior with overconfident scores.
+
+**3. HealthClassifierAgent** — Coarse binary classifier: "is something wrong with this plant?" Can't tell *what's* wrong, but is calibrated to distinguish healthy from unhealthy with low compute. Acts as a tiebreaker when the disease classifier and segmentation disagree. Also temperature-scaled.
+
+**4. SegmentationAgent** — Pure OpenCV analysis on each plant crop. Computes HSV-based green leaf masks, yellow tissue detection, Canny edge detection for perforations, and contour analysis. Produces both scalar features (green_ratio, yellowness, edge_density) for log-likelihood computation AND retains the spatial masks for the visual explanation overlay. This is the "Explanation === Evidence" guarantee — every overlay pixel comes from the same computation that produced the log-likelihood.
+
+**5. AnomalyDetectorAgent** — Catches *unknown-unknowns* that classifiers would force into a known label. Extracts DINOv2 patch embeddings from each plant crop and scores them against a PatchCore memory bank of healthy plant patches. Plants that are far from the healthy distribution get mass pushed toward "ambiguous", triggering human review. The classifiers say "this is probably X"; the anomaly detector says "this doesn't look like anything I've seen before."
+
+**6. GrowthStageAgent** — Classifies each plant as seedling, vegetative, flowering, or fruiting using visual heuristics (plant size, green coverage, presence of bright non-green regions). The growth stage is orthogonal to condition — it doesn't change the disease/weed diagnosis. Instead, it provides an urgency multiplier to the controller: a seedling with disease needs immediate action (fragile), a mature plant with the same disease can wait.
+
+**7. WeatherPriorAgent** — Runs BEFORE all ML agents. Fetches 7-day weather history from Open-Meteo (free, no API key), then adjusts the shared prior:
+- 5+ dry days + high temp → P(water_stress) ↑
+- High humidity + warm → P(fungal disease) ↑
+- Heavy recent rain → P(nutrient_stress) ↑ (leaching)
+- Cool + dry → all stress priors ↓
+
+This means the ML agents start from a weather-informed prior instead of a uniform one. If it hasn't rained in a week and it's 35°C, the system is already suspicious of water stress before the first pixel is analyzed.
+
+**8. WaterBalanceAgent** — Resolves the canonical ML ambiguity: "is this plant wilting from disease or from water stress?" ML models can't tell — both look like drooping leaves. The water balance agent runs FAO-56 Penman-Monteith evapotranspiration demand against van Genuchten soil water retention to compute a physics-based stress index. If the soil is genuinely dry (high demand, low supply, low matric potential), it pushes water_stress UP and disease DOWN. If the soil is wet, it pushes water_stress DOWN. No pixels involved — pure biophysics.
+
+**9. PesticideFateAgent** — Evaluates "what happens if we spray?" for each candidate action. Runs a Gaussian plume atmospheric dispersion model to compute off-target deposition on neighboring plants and waterways, using the current wind speed/direction. Also computes soil persistence via first-order DT50 degradation kinetics. Outputs a hazard score: drift > 0.4 ppm → VETO the spray. This is why the system sometimes recommends laser zap over herbicide even when it's confident about a weed — the wind is wrong.
+
+**10. EcologicalDynamicsAgent** — Evaluates "what happens to the ecosystem if we treat?" Runs a Lotka-Volterra predator-prey-parasitoid ODE with pesticide toxicity parameters for the next 30 days. Predicts the population trajectory of pests, predators, and parasitoid wasps under each candidate intervention. If chlorpyrifos would crash the predator population by >50% in 14 days → VETO the chemical. This prevents the "pesticide treadmill" — killing predators causes a worse pest rebound than the original problem.
+
+**11. VLMReasonerAgent** — Only fires on *disputed* plants (where ML agents disagreed, KL divergence > 1.5). Receives the actual crop image plus structured prompt. Looks for specific visual cues: concentric rings → fungal, water-soaked margins → bacterial, clean tears → mechanical damage. Outputs calibrated log-likelihoods per condition. Uses OpenAI gpt-4o-mini via AG2's AssistantAgent with typed tool calls (`analyze_disagreement_region`, `submit_per_plant_likelihoods`). Supports local VLM fallback (LLaVA/InternVL2) when configured.
+
+**12. SkepticAgent** — The devil's advocate. When agents disagree, the Skeptic proposes alternative hypotheses: "what if this disease is actually nutrient stress?" or "what if this weed is a young crop?" Uses the same OpenAI backend as the VLM but in text-only mode. Generates structured hypotheses with evidence axes. Engages in a multi-turn debate with the VLM (max 3 rounds) — if posterior entropy remains high after the VLM's assessment, the Skeptic counter-argues and the VLM re-examines. Converges when entropy drops below threshold.
+
+### Non-inference agents
+
+- **`EIGControllerAgent`** — Utility-based action selection. Computes expected utility for all 8 intervention types per plant: `U = yield_protected - chem_cost - 0.5×drift_hazard - 0.4×eco_cost`. Picks the argmax. Uses AG2 `register_nested_chats` to spawn one ActionEvaluator per intervention type.
+- **`HumanReviewProxy`** — Escalation agent. When the controller's best action is `human_review` (entropy too high, no confident diagnosis), this agent flags the plant for expert inspection.
 
 LLM agents only fire on disputed plants (every 5th frame in streaming mode). The other 10 run on every frame with zero API cost.
 

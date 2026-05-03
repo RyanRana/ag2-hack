@@ -160,6 +160,7 @@ const state = {
   busy: false,
   stream: { running: false, intervalMs: 1500, deepEvery: 5, frameTick: 0 },
   manifest: null,
+  manifestData: null,
   liveField: null,
   // Per-frame species labels (from dataset GT, class:"weed"|"crop").
   species: {},
@@ -221,20 +222,57 @@ function capturePlantCrop(plantId) {
 
 // --- Video source --------------------------------------------------------
 
+// The manifest tracks GT bbox labels for the aerial frames that compose
+// `field_stream.mp4`. Other clips don't have GT — switching to them nulls
+// `state.manifest` so streaming inference falls through to /api/run-frame.
+const MANIFEST_VIDEO_BASENAME = "field_stream.mp4";
+
 async function loadVideoSource() {
+  // Manifest first so setActiveVideo() can apply it to the right clip.
+  const m = await fetch("/api/manifest").then(r => r.json()).catch(() => null);
+  state.manifestData = (m && m.frame_count) ? m : null;
+
   const r = await fetch("/api/demo-videos");
   const data = await r.json();
+  const sel = $("video-select");
+  if (sel) sel.innerHTML = "";
+
   if (data.videos && data.videos.length) {
-    $("field-video").src = data.videos[0].url;
+    if (sel) {
+      for (const vid of data.videos) {
+        const opt = document.createElement("option");
+        opt.value = vid.filename;
+        opt.dataset.url = vid.url;
+        opt.textContent = vid.filename
+          .replace(/\.(mp4|webm)$/i, "")
+          .replace(/[_-]/g, " ");
+        sel.appendChild(opt);
+      }
+      sel.addEventListener("change", () => {
+        const opt = sel.options[sel.selectedIndex];
+        setActiveVideo(opt.value, opt.dataset.url);
+      });
+    }
+    const def = data.videos.find(v => v.filename === MANIFEST_VIDEO_BASENAME)
+             || data.videos[0];
+    if (sel) sel.value = def.filename;
+    setActiveVideo(def.filename, def.url);
   }
-  const m = await fetch("/api/manifest").then(r => r.json()).catch(() => null);
-  if (m && m.frame_count) state.manifest = m;
   // Models lazy-load on the first frame. Skip the pre-warm so the user can
   // start streaming immediately — the first inference takes a beat longer,
   // but they're not staring at a disabled button.
   state.warmedUp = true;
   setStreamButtonState("ready");
   $("run-state").textContent = "ready";
+}
+
+function setActiveVideo(filename, url) {
+  if (state.stream && state.stream.running) stopStream();
+  const v = $("field-video");
+  v.src = url;
+  state.manifest = (filename === MANIFEST_VIDEO_BASENAME)
+    ? state.manifestData
+    : null;
 }
 
 function setStreamButtonState(s) {
@@ -419,12 +457,16 @@ function onAction(a) {
     state.plants[a.plant_id].utility = a.expected_utility;
     state.plants[a.plant_id].physics_hazard = a.physics_hazard_score || 0;
   }
-  // Track weed-detected count (any plant where weed got a strong vote).
-  // species keys are strings from JSON, plant_id may be numeric — coerce both.
-  const pid = String(a.plant_id);
-  const plant = state.plants[a.plant_id] || state.plants[pid];
-  if (plant && (plant.top1 === "weed" || state.species[pid] === "weed" || state.species[a.plant_id] === "weed")) {
-    state.totals.weeds_detected++;
+  // Track weed-detected count — check both top1 classification AND dataset
+  // species label. Coerce keys to both string and number for JSON safety.
+  {
+    const numPid = +a.plant_id;
+    const strPid = String(a.plant_id);
+    const pl = state.plants[numPid] || state.plants[strPid];
+    const isWeed = (pl && pl.top1 === "weed")
+                || state.species[strPid] === "weed"
+                || state.species[numPid] === "weed";
+    if (isWeed) state.totals.weeds_detected++;
   }
   // Add ALL actions to persistent list (not just FLAG_ACTIONS).
   {
@@ -992,6 +1034,12 @@ function drawDriftCones() {
   const sy = c.height / state.imageNatural.h;
   const wind = state.fieldState.wind_dir_deg ?? 270;
   const flowRad = ((wind + 180) % 360) * Math.PI / 180;
+  // Resolve --destructive once per render. Apply alpha via globalAlpha so we
+  // don't depend on Canvas2D supporting color-mix() — works in any browser
+  // that accepts the resolved color (rgb/oklch) as a fillStyle.
+  const destructive = getComputedStyle(document.documentElement)
+    .getPropertyValue("--destructive").trim() || "rgb(211, 95, 95)";
+  ctx.save();
   for (const pid in state.plants) {
     const p = state.plants[pid];
     const phyTable = state.physics[pid] || {};
@@ -1013,17 +1061,20 @@ function drawDriftCones() {
     const bx = cx + Math.cos(flowRad + halfWidth) * length * 0.95;
     const by = cy + Math.sin(flowRad + halfWidth) * length * 0.95;
     const alpha = 0.18 + 0.45 * haz;
-    ctx.fillStyle = `rgba(211, 95, 95, ${alpha})`;
-    ctx.strokeStyle = `rgba(211, 95, 95, ${Math.min(1, alpha + 0.3)})`;
+    ctx.fillStyle = destructive;
+    ctx.strokeStyle = destructive;
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.moveTo(cx, cy);
     ctx.lineTo(ax, ay);
     ctx.quadraticCurveTo(tipX, tipY, bx, by);
     ctx.closePath();
+    ctx.globalAlpha = alpha;
     ctx.fill();
+    ctx.globalAlpha = Math.min(1, alpha + 0.3);
     ctx.stroke();
   }
+  ctx.restore();
   // Wind readout — live values from the field state.
   const speed = state.fieldState.wind_speed_m_s;
   $("wind-label").textContent = (speed !== undefined && speed !== null)
@@ -1132,7 +1183,7 @@ function renderActionsSummary() {
     const stageBadge = g.latest.growthStage
       ? ` <span class="growth-badge">${g.latest.growthStage}</span>` : "";
     cards.push(`
-      <div class="action-card ${af.cls}${veto ? ' veto' : ''}" data-time="${g.latest.videoTime || 0}">
+      <div class="action-card ${af.cls}${veto ? ' veto' : ''}" data-time="${g.latest.videoTime || 0}" data-action="${g.action}">
         ${snap}
         <span class="icon">${af.icon}</span>
         <div class="copy">
@@ -1148,31 +1199,38 @@ function renderActionsSummary() {
       </div>
     `);
   }
-  // Always-visible "this frame" mini-summary so the panel never goes empty.
-  const lastSummary = (() => {
-    if (!lastFrame.length) return "";
-    const counts = {};
-    for (const a of lastFrame) counts[a.action_type] = (counts[a.action_type] || 0) + 1;
-    const order = ["laser_zap", "targeted_spray", "targeted_fungicide",
-                   "targeted_irrigation", "foliar_nutrient",
-                   "human_review", "rescan_higher_res", "no_action"];
-    const lines = [];
-    for (const a of order) {
-      if (!counts[a]) continue;
-      const af = ACTION_FRIENDLY[a]; if (!af) continue;
-      lines.push(`<span class="mini-pill ${af.cls}">${af.icon} ${af.verb} <b>${counts[a]}</b></span>`);
-    }
-    return `
-      <div class="last-frame-strip">
-        <div class="actions-section-title"><i class="ph ph-arrows-clockwise"></i> This frame</div>
-        <div class="mini-pills">${lines.join("")}</div>
-      </div>
-    `;
-  })();
-  const flaggedHeader = flagged.length
-    ? `<div class="actions-section-title flagged"><i class="ph-fill ph-flag"></i> Flagged interventions (${flagged.length})</div>`
+  // Filter pills — count all accumulated actions, clicking filters the cards below.
+  const filterCounts = {};
+  for (const f of state.flaggedActions) {
+    filterCounts[f.action] = (filterCounts[f.action] || 0) + 1;
+  }
+  const activeFilter = state._actionFilter || "all";
+  const filterOrder = ["laser_zap", "targeted_spray", "targeted_fungicide",
+                       "targeted_irrigation", "foliar_nutrient",
+                       "human_review", "rescan_higher_res", "no_action"];
+  const totalCount = state.flaggedActions.length;
+  let filterPills = `<button class="mini-pill filter-pill ${activeFilter === 'all' ? 'active' : ''}" data-filter="all">all <b>${totalCount}</b></button>`;
+  for (const a of filterOrder) {
+    if (!filterCounts[a]) continue;
+    const af = ACTION_FRIENDLY[a]; if (!af) continue;
+    filterPills += `<button class="mini-pill filter-pill ${af.cls} ${activeFilter === a ? 'active' : ''}" data-filter="${a}">${af.icon} ${af.verb} <b>${filterCounts[a]}</b></button>`;
+  }
+  const filterStrip = totalCount > 0 ? `
+    <div class="last-frame-strip">
+      <div class="mini-pills">${filterPills}</div>
+    </div>
+  ` : "";
+  // Filter cards by active filter
+  const filteredCards = activeFilter === "all"
+    ? cards
+    : cards.filter((_, idx) => {
+        const g = Array.from(groups.values())[idx];
+        return g && g.action === activeFilter;
+      });
+  const flaggedHeader = filteredCards.length
+    ? `<div class="actions-section-title flagged"><i class="ph-fill ph-flag"></i> Interventions (${filteredCards.length})</div>`
     : "";
-  wrap.innerHTML = lastSummary + flaggedHeader + cards.join("");
+  wrap.innerHTML = filterStrip + flaggedHeader + filteredCards.join("");
   // Wire snapshot clicks to seek video.
   wrap.querySelectorAll(".action-card[data-time]").forEach(el => {
     el.addEventListener("click", (e) => {
@@ -1192,22 +1250,47 @@ function renderActionsSummary() {
       if (src) showPreviewModal(src);
     });
   });
+  // Wire filter pills
+  wrap.querySelectorAll(".filter-pill").forEach(pill => {
+    pill.addEventListener("click", (e) => {
+      e.stopPropagation();
+      state._actionFilter = pill.dataset.filter;
+      renderActionsSummary();
+    });
+  });
 }
 
 function renderTotals() {
   const t = state.totals;
-  $("kpi-weeds").textContent = t.weeds_detected;
-  $("kpi-zaps").textContent = t.intervention_counts.laser_zap || 0;
-  $("kpi-disease").textContent = (t.intervention_counts.targeted_fungicide || 0)
-                              + (t.intervention_counts.targeted_spray || 0);
-  $("kpi-phys").textContent = t.phys_vetos;
-  // "Predators protected" rough proxy: each ecology veto avoids a chlorpyrifos
-  // application that would have killed ~100 predators in the local plot.
-  $("kpi-eco").textContent = (t.eco_vetos * 100);
-  $("kpi-saved").innerHTML = `${t.chem_saved_ml.toFixed(0)} <span class="unit">ml</span>`;
-  // Active learning queue (Sprint 4)
-  const alEl = $("kpi-al-queue");
-  if (alEl) alEl.textContent = state.activeLearning.unlabeled || state.activeLearning.total_queued || 0;
+  const ic = t.intervention_counts;
+
+  // Count all actions to derive stats
+  const healthyCount = ic.no_action || 0;
+  const actionsTaken = (ic.laser_zap || 0) + (ic.targeted_spray || 0)
+    + (ic.targeted_fungicide || 0) + (ic.targeted_irrigation || 0)
+    + (ic.foliar_nutrient || 0);
+  const reviewCount = (ic.human_review || 0) + (ic.rescan_higher_res || 0);
+  const totalPlants = healthyCount + actionsTaken + reviewCount;
+
+  // Field Health — % healthy out of all plants seen
+  const healthPct = totalPlants > 0 ? Math.round((healthyCount / totalPlants) * 100) : 0;
+  $("kpi-health").innerHTML = `${healthPct}<span class="unit text-sm font-normal text-muted-foreground">%</span>`;
+
+  // Threats Found — everything that needed intervention or review
+  $("kpi-threats").textContent = actionsTaken + reviewCount;
+
+  // Actions Taken
+  $("kpi-actions").textContent = actionsTaken;
+
+  // Chemical Saved
+  $("kpi-saved").innerHTML = `${t.chem_saved_ml.toFixed(0)} <span class="unit text-sm font-normal text-muted-foreground">ml</span>`;
+
+  // Unsafe Sprays Blocked — drift + ecology vetoes combined
+  $("kpi-blocked").textContent = t.phys_vetos + t.eco_vetos;
+
+  // Needs Attention — human_review + rescan actions (farmer should go check)
+  const attention = (ic.human_review || 0) + (ic.rescan_higher_res || 0);
+  $("kpi-attention").textContent = attention;
 }
 
 // WHY-NOT-SPRAY now renders inline inside the matching flagged action card —

@@ -22,6 +22,10 @@
   --pulse-flag:      var(--destructive);
   --pulse-warn:      #d39c5f;
   --pulse-ok:        #82c85a;
+  /* Fixed text colors for use on the bright fixed-hue badges above —
+   * stay constant in both themes since the badge backgrounds don't flip. */
+  --pulse-ink:       oklch(0.2046 0 0);
+  --pulse-paper:     oklch(0.9911 0 0);
   --pulse-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
@@ -158,8 +162,8 @@
   background: var(--foreground);
   color: var(--background);
 }
-.bbox-label .species.weed { background: var(--pulse-weed); color: #fff; }
-.bbox-label .species.crop { background: var(--pulse-healthy); color: #1c1917; }
+.bbox-label .species.weed { background: var(--pulse-weed); color: var(--pulse-paper); }
+.bbox-label .species.crop { background: var(--pulse-healthy); color: var(--pulse-ink); }
 
 .bbox-label .action-pill {
   display: inline-block;
@@ -172,12 +176,12 @@
   background: var(--foreground);
   color: var(--background);
 }
-.bbox-label .action-pill.weed    { background: var(--pulse-weed); color: #fff; }
-.bbox-label .action-pill.disease { background: var(--pulse-disease); color: #1c1917; }
-.bbox-label .action-pill.water   { background: var(--pulse-water); color: #1c1917; }
-.bbox-label .action-pill.nutrient{ background: var(--pulse-nutrient); color: #1c1917; }
-.bbox-label .action-pill.healthy { background: var(--pulse-healthy); color: #1c1917; }
-.bbox-label .action-pill.review  { background: var(--pulse-ambiguous); color: #fff; }
+.bbox-label .action-pill.weed    { background: var(--pulse-weed); color: var(--pulse-paper); }
+.bbox-label .action-pill.disease { background: var(--pulse-disease); color: var(--pulse-ink); }
+.bbox-label .action-pill.water   { background: var(--pulse-water); color: var(--pulse-ink); }
+.bbox-label .action-pill.nutrient{ background: var(--pulse-nutrient); color: var(--pulse-ink); }
+.bbox-label .action-pill.healthy { background: var(--pulse-healthy); color: var(--pulse-ink); }
+.bbox-label .action-pill.review  { background: var(--pulse-ambiguous); color: var(--pulse-paper); }
 
 .wind-indicator .arrow {
   transform-origin: center;
@@ -441,7 +445,7 @@
 
 #stream-btn.streaming {
   background: var(--pulse-flag);
-  color: #fff;
+  color: var(--destructive-foreground);
   box-shadow: 0 0 0 0 color-mix(in oklab, var(--pulse-flag) 60%, transparent);
   animation: streaming-pulse 1.6s ease-in-out infinite;
 }
@@ -582,7 +586,7 @@ html:not(.dark) .explain-overlay { mix-blend-mode: multiply; opacity: 0.5; }
   letter-spacing: 0.06em;
   border-radius: 3px;
   background: var(--destructive);
-  color: #fff;
+  color: var(--destructive-foreground);
   text-transform: uppercase;
 }
 .bbox-label .growth-badge {
@@ -610,11 +614,11 @@ html:not(.dark) .explain-overlay { mix-blend-mode: multiply; opacity: 0.5; }
 }
 .agent-row .mode-badge.local {
   background: var(--pulse-ok);
-  color: #1c1917;
+  color: var(--pulse-ink);
 }
 .agent-row .mode-badge.api {
   background: var(--chart-2, #6366f1);
-  color: #fff;
+  color: var(--pulse-paper);
 }
 
 /* --- Debate indicator (Sprint 3) --- */
@@ -666,6 +670,19 @@ html:not(.dark) .explain-overlay { mix-blend-mode: multiply; opacity: 0.5; }
 .kpi-tile.al-tile .kpi-num { color: var(--chart-2, #6366f1); }
 
 /* --- Preview button in action cards --- */
+/* --- Filter pills --- */
+.filter-pill {
+  cursor: pointer;
+  opacity: 0.5;
+  transition: opacity 0.2s, border-color 0.2s;
+  border: 1px solid transparent;
+}
+.filter-pill:hover { opacity: 0.8; }
+.filter-pill.active {
+  opacity: 1;
+  border-color: currentColor;
+}
+
 .preview-btn {
   display: flex;
   align-items: center;
