@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>pulse / precision agriculture</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <span class="brand">pulse / precision agriculture</span>
+    <span class="status"><span id="conn-state" class="live">connecting…</span></span>
+  </header>
+
+  <div class="layout">
+    <!-- PLAN VIEW + SIDE DATA -->
+    <div class="plan-row">
+      <!-- FIELD IMAGE PANEL (PLAN VIEW) -->
+      <div class="panel field-panel">
+        <h2>LIVE FIELD STREAM</h2>
+        <div class="stream-controls">
+          <button id="stream-btn" class="primary">▶ START STREAM</button>
+          <span id="run-state" class="text-dim">idle</span>
+          <details class="upload-fold">
+            <summary class="text-dim">or upload</summary>
+            <div class="upload-row">
+              <input type="file" id="image-input" accept="image/*">
+              <button id="run-btn">Run on upload</button>
+            </div>
+          </details>
+        </div>
+        <div class="field-canvas-wrap" id="canvas-wrap">
+          <video id="field-video" autoplay loop muted playsinline crossorigin="anonymous"></video>
+          <canvas class="heatmap-canvas" id="heatmap-canvas"></canvas>
+          <canvas class="drift-canvas" id="drift-canvas"></canvas>
+          <div class="wind-indicator">
+            <span class="arrow" id="wind-arrow">→</span>
+            <span id="wind-label">— m/s @ —</span>
+          </div>
+          <div class="bbox-layer" id="bbox-layer"></div>
+        </div>
+      </div>
+
+      <!-- SIDE DATA COLUMN -->
+      <aside class="side-data">
+        <details class="panel collapsible">
+          <summary><h2>AGENT CONSTRAINTS</h2><span class="chev">▸</span></summary>
+          <div id="agent-rows"></div>
+        </details>
+        <div class="panel">
+          <h2>INTERVENTION SUMMARY</h2>
+          <div id="interv-rows"></div>
+        </div>
+        <div class="panel">
+          <h2>BIOPHYSICS READOUT</h2>
+          <div class="biophysics-readout" id="biophysics-readout">
+            <span>stress index</span><span class="bio-value" id="bio-stress">—</span>
+            <span>demand mm/d</span><span class="bio-value" id="bio-demand">—</span>
+            <span>supply mm/d</span><span class="bio-value" id="bio-supply">—</span>
+            <span>soil ψ kPa</span><span class="bio-value" id="bio-psi">—</span>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <!-- FARMER ACTIONS -->
+    <div class="panel actions-panel">
+      <h2>RECOMMENDED ACTIONS</h2>
+      <div id="actions-summary" class="actions-summary">
+        <div class="actions-empty">Stream not started.</div>
+      </div>
+    </div>
+
+    <!-- TODAY'S PASS -->
+    <div class="kpi-strip">
+      <div class="kpi-tile"><div class="kpi-label">WEEDS DETECTED</div><div class="kpi-num" id="kpi-weeds">0</div></div>
+      <div class="kpi-tile"><div class="kpi-label">WEEDS ZAPPED</div><div class="kpi-num" id="kpi-zaps">0</div></div>
+      <div class="kpi-tile"><div class="kpi-label">DISEASE TREATED</div><div class="kpi-num" id="kpi-disease">0</div></div>
+      <div class="kpi-tile"><div class="kpi-label">DRIFT VETOES</div><div class="kpi-num" id="kpi-phys">0</div></div>
+      <div class="kpi-tile"><div class="kpi-label">PREDATORS PROTECTED</div><div class="kpi-num" id="kpi-eco">0</div></div>
+      <div class="kpi-tile big"><div class="kpi-label">HERBICIDE SAVED</div><div class="kpi-num" id="kpi-saved">0 <span class="unit">ml</span></div></div>
+    </div>
+
+    <!-- MESSAGE STREAM -->
+    <div class="panel msg-panel">
+      <h2>MESSAGE STREAM</h2>
+      <div id="msg-stream"></div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

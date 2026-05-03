@@ -1,0 +1,38 @@
+{
+  "glyphosate": {
+    "soil_dt50_days": 23.0,
+    "vapor_pressure_pa": 1.31e-7,
+    "henry_atm_m3_mol": 1.4e-12,
+    "log_kow": -3.4,
+    "soil_koc_l_kg": 21698.0,
+    "label": "non-selective herbicide",
+    "non_target_threshold_ppm": 0.01
+  },
+  "2_4_d": {
+    "soil_dt50_days": 10.0,
+    "vapor_pressure_pa": 1.4e-5,
+    "henry_atm_m3_mol": 5.6e-10,
+    "log_kow": 2.81,
+    "soil_koc_l_kg": 88.4,
+    "label": "selective herbicide (broadleaf)",
+    "non_target_threshold_ppm": 0.005
+  },
+  "atrazine": {
+    "soil_dt50_days": 75.0,
+    "vapor_pressure_pa": 3.85e-5,
+    "henry_atm_m3_mol": 2.6e-9,
+    "log_kow": 2.61,
+    "soil_koc_l_kg": 100.0,
+    "label": "triazine herbicide",
+    "non_target_threshold_ppm": 0.003
+  },
+  "chlorpyrifos": {
+    "soil_dt50_days": 30.0,
+    "vapor_pressure_pa": 0.00227,
+    "henry_atm_m3_mol": 4.16e-6,
+    "log_kow": 4.7,
+    "soil_koc_l_kg": 6070.0,
+    "label": "organophosphate insecticide",
+    "non_target_threshold_ppm": 0.0001
+  }
+}

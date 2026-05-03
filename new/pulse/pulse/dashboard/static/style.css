@@ -1,0 +1,808 @@
+:root {
+  /* Ollama-inspired light palette: near-white surfaces, warm-neutral
+     borders, restrained accent. Keeps chart colours saturated enough to
+     still pop against the page. */
+  --bg: #fafaf9;
+  --bg-elev: #ffffff;
+  --bg-elev-2: #f5f5f4;
+  --border: #e7e5e4;
+  --border-strong: #d6d3d1;
+  --text: #1c1917;
+  --text-dim: #57534e;
+  --text-faint: #a8a29e;
+  --accent: #2563eb;
+  --warn: #b45309;
+  --ok: #15803d;
+  --flag: #b91c1c;
+  --weed: #be185d;
+  --disease: #c2410c;
+  --healthy: #15803d;
+  --nutrient: #a16207;
+  --water: #0e7490;
+  --pest: #7e22ce;
+  --ambiguous: #78716c;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+header {
+  border-bottom: 1px solid var(--border);
+  padding: 14px 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: var(--mono);
+  font-size: 13px;
+  background: var(--bg);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+header .live::before {
+  content: "●";
+  color: var(--ok);
+  margin-right: 8px;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.4; transform: scale(0.8); }
+}
+
+.text-dim { color: var(--text-dim); }
+
+.layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1px;
+  padding: 1px;
+  background: var(--border);
+}
+
+.panel {
+  background: var(--bg-elev);
+  padding: 18px 24px;
+}
+
+.panel h2 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-dim);
+  margin: 0 0 14px 0;
+  font-weight: 500;
+  font-family: var(--mono);
+}
+
+/* Stream controls (replaces old gallery-first flow) */
+.stream-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.stream-controls button {
+  background: var(--bg-elev-2);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  padding: 6px 14px;
+  font-family: var(--mono);
+  cursor: pointer;
+  font-size: 12px;
+}
+.stream-controls button.primary {
+  background: var(--accent);
+  color: #ffffff;
+  border-color: var(--accent);
+  font-weight: 600;
+}
+.stream-controls button.primary.streaming {
+  background: var(--flag);
+  border-color: var(--flag);
+  color: #ffffff;
+}
+.stream-controls button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.stream-controls button:hover:not(:disabled) { border-color: var(--accent); }
+
+.upload-fold {
+  margin-left: auto;
+  font-size: 11px;
+}
+.upload-fold[open] { padding-left: 6px; }
+.upload-fold summary { cursor: pointer; }
+
+.actions-panel { background: var(--bg-elev); }
+.actions-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.actions-summary .action-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  background: var(--bg-elev-2);
+  border-left: 4px solid var(--accent);
+  font-family: var(--mono);
+  font-size: 13px;
+}
+.actions-summary .action-card .icon {
+  font-size: 20px;
+  width: 28px;
+  text-align: center;
+}
+.actions-summary .action-card .copy { flex: 1; }
+.actions-summary .action-card .copy .head {
+  color: var(--text);
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+.actions-summary .action-card .copy .why {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+.actions-summary .action-card .count {
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 600;
+  font-family: var(--mono);
+  text-align: right;
+  min-width: 40px;
+}
+.actions-summary .action-card.weed       { border-left-color: var(--weed); }
+.actions-summary .action-card.disease    { border-left-color: var(--disease); }
+.actions-summary .action-card.water      { border-left-color: var(--water); }
+.actions-summary .action-card.nutrient   { border-left-color: var(--nutrient); }
+.actions-summary .action-card.pest       { border-left-color: var(--pest); }
+.actions-summary .action-card.healthy    { border-left-color: var(--healthy); }
+.actions-summary .action-card.review     { border-left-color: var(--warn); }
+.actions-summary .action-card.veto       { border-left-color: var(--flag); }
+.actions-summary .actions-empty { color: var(--text-faint); font-style: italic; padding: 14px 18px; }
+.actions-summary .actions-empty.small { padding: 8px 0; font-size: 12px; }
+
+.actions-section-title {
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 10px;
+  color: var(--text-dim);
+  padding: 6px 0;
+  margin-top: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.actions-flagged .actions-section-title { color: var(--warn); }
+
+.actions-summary .action-card.veto {
+  border-left-color: var(--flag);
+  box-shadow: inset 4px 0 16px -4px var(--flag);
+}
+.actions-summary .action-card { cursor: pointer; transition: background 0.15s; }
+.actions-summary .action-card:hover { background: var(--bg-elev); }
+.actions-summary .action-card .snap {
+  width: 64px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 2px;
+  border: 1px solid var(--border-strong);
+  flex-shrink: 0;
+}
+
+.action-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 5px 12px;
+  font-family: var(--mono);
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-dim);
+}
+.action-row:last-child { border: 0; }
+.action-row .icon { width: 22px; }
+.action-row .head { flex: 1; color: var(--text); }
+.action-row .count { color: var(--text); font-weight: 600; }
+.action-row.weed .head    { color: var(--weed); }
+.action-row.disease .head { color: var(--disease); }
+.action-row.water .head   { color: var(--water); }
+.action-row.healthy .head { color: var(--healthy); }
+
+/* Heatmap aesthetics — soft blur for "halo" effect, mix-blend lets the
+   underlying greens show through. The animation gives a subtle pulse so
+   detections feel live rather than statically painted. */
+.heatmap-canvas {
+  filter: blur(1px);
+  opacity: 0.85;
+  animation: heat-pulse 2.6s ease-in-out infinite;
+}
+@keyframes heat-pulse {
+  0%, 100% { opacity: 0.78; }
+  50%      { opacity: 0.95; }
+}
+
+/* Mini action pills shown on every frame */
+.last-frame-strip {
+  background: var(--bg-elev-2);
+  margin-bottom: 8px;
+  padding: 10px 14px;
+  border-left: 3px solid var(--accent);
+}
+.mini-pills { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.mini-pill {
+  padding: 4px 10px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text);
+}
+.mini-pill.weed     { border-color: var(--weed);    color: var(--weed); }
+.mini-pill.disease  { border-color: var(--disease); color: var(--disease); }
+.mini-pill.water    { border-color: var(--water);   color: var(--water); }
+.mini-pill.healthy  { border-color: var(--healthy); color: var(--healthy); }
+.mini-pill.review   { border-color: var(--warn);    color: var(--warn); }
+
+.actions-section-title.flagged { color: var(--warn); margin-top: 14px; }
+
+/* Species pill on bbox label */
+.bbox-label .species {
+  display: inline-block;
+  padding: 0 5px;
+  margin-right: 4px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  border-radius: 2px;
+  background: var(--text);
+  color: var(--bg);
+}
+.bbox-label .species.weed { background: var(--weed); color: #fff; }
+.bbox-label .species.crop { background: var(--healthy); color: #fff; }
+
+/* Stream button warming/disabled state */
+.stream-controls button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  background: var(--bg-elev-2);
+  color: var(--text-dim);
+  border-color: var(--border);
+}
+
+/* KPI unit suffix */
+.kpi-tile .kpi-num .unit {
+  font-size: 13px;
+  color: var(--text-dim);
+  margin-left: 4px;
+}
+
+/* Heatmap overlay layer — no blend mode in light theme. The canvas paints
+   semi-transparent radial gradients directly over the video; mix-blend
+   modes either blow out (screen) or muddy them (multiply) on light pages. */
+.heatmap-canvas {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  width: 100%;
+  height: 100%;
+  opacity: 0.85;
+}
+
+.demo-gallery {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.demo-gallery .thumb {
+  position: relative;
+  width: 130px;
+  height: 100px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-elev-2);
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.2s, transform 0.2s;
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text-dim);
+}
+
+.demo-gallery .thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.demo-gallery .thumb:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.demo-gallery .thumb .caption {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(255, 255, 255, 0.92);
+  padding: 2px 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+}
+
+.demo-gallery .thumb.running {
+  border-color: var(--ok);
+  box-shadow: 0 0 12px var(--ok);
+}
+
+.upload-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 12px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.upload-row input[type=file] { color: var(--text-dim); }
+
+.upload-row button {
+  background: var(--bg-elev-2);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  padding: 6px 14px;
+  font-family: var(--mono);
+  cursor: pointer;
+}
+
+.upload-row button:hover { border-color: var(--accent); color: var(--accent); }
+
+.field-canvas-wrap {
+  position: relative;
+  width: 100%;
+  background: var(--bg-elev-2);
+  border-radius: 4px;
+  overflow: hidden;
+  min-height: 360px;
+  border: 1px solid var(--border);
+}
+
+#field-video {
+  width: 100%;
+  height: auto;
+  display: block;
+  background: var(--bg-elev-2);
+  /* Punch up the source frames a touch — saturation + contrast helps weeds
+     and yellowing leaves stand out from the soil background. */
+  filter: saturate(1.12) contrast(1.04);
+}
+
+.bbox-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.bbox-overlay {
+  position: absolute;
+  border: 2px solid currentColor;
+  pointer-events: none;
+  transition: border-color 0.3s;
+}
+
+.bbox-overlay.disputed {
+  animation: dispute-pulse 1.4s ease-in-out infinite;
+}
+
+.bbox-overlay.physics-veto {
+  border-color: var(--flag);
+  border-style: dashed;
+  box-shadow: 0 0 16px var(--flag);
+}
+
+@keyframes dispute-pulse {
+  0%, 100% { box-shadow: 0 0 4px currentColor; }
+  50%      { box-shadow: 0 0 18px currentColor; }
+}
+
+.bbox-label {
+  position: absolute;
+  background: rgba(255, 255, 255, 0.92);
+  color: currentColor;
+  padding: 2px 6px;
+  font-family: var(--mono);
+  font-size: 10px;
+  border: 1px solid currentColor;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translateY(-100%);
+}
+
+.drift-canvas {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  width: 100%;
+  height: 100%;
+  mix-blend-mode: screen;
+}
+
+.wind-indicator {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid var(--border-strong);
+  padding: 8px 12px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  z-index: 5;
+}
+
+.wind-indicator .arrow {
+  display: inline-block;
+  color: var(--accent);
+  font-size: 16px;
+  transform-origin: center;
+  transition: transform 0.5s ease;
+  margin-right: 6px;
+}
+
+.split-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--border);
+}
+
+.plan-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--border);
+  align-items: stretch;
+}
+
+.plan-row .field-panel {
+  min-width: 0;
+}
+
+.side-data {
+  display: grid;
+  grid-auto-rows: min-content;
+  gap: 1px;
+  background: var(--border);
+  min-width: 0;
+  overflow-y: auto;
+  max-height: calc(100vh - 60px);
+}
+
+@media (max-width: 1100px) {
+  .plan-row {
+    grid-template-columns: 1fr;
+  }
+  .side-data {
+    max-height: none;
+  }
+}
+
+.agent-row, .interv-row {
+  display: flex;
+  align-items: center;
+  padding: 6px 0;
+  font-family: var(--mono);
+  font-size: 13px;
+  border-bottom: 1px solid var(--border);
+}
+
+.agent-row:last-child, .interv-row:last-child { border: 0; }
+.agent-row .name { width: 200px; color: var(--text-dim); }
+.agent-row .paradigm { width: 80px; font-size: 10px; color: var(--text-faint); text-transform: uppercase; }
+.agent-row .status { margin-left: auto; }
+.agent-row .status.ok { color: var(--ok); }
+.agent-row .status.pending { color: var(--text-faint); }
+.agent-row .status.running { color: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+.agent-row .status.skipped { color: var(--text-faint); opacity: 0.5; }
+.agent-row .status.fail { color: var(--flag); }
+
+.interv-row .label {
+  width: 200px;
+  color: var(--text);
+}
+
+.interv-row .bar {
+  width: 200px;
+  height: 6px;
+  background: var(--border-strong);
+  margin: 0 14px;
+  border-radius: 1px;
+  overflow: hidden;
+}
+
+.interv-row .bar-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.5s ease-out;
+}
+
+.interv-row .count {
+  width: 50px;
+  text-align: right;
+  color: var(--text-dim);
+}
+
+/* Why-not-spray + KPI strip */
+.why-card { padding: 4px 0; }
+.why-empty { color: var(--text-faint); font-style: italic; padding: 14px 0; }
+.why-row {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.why-row:last-child { border: 0; }
+.why-row .icon { font-size: 22px; }
+.why-row .body { flex: 1; }
+.why-row .body .head { color: var(--text); margin-bottom: 4px; }
+.why-row .body .stat { color: var(--text-dim); font-size: 11px; line-height: 1.5; }
+.why-row .body .stat .num { color: var(--flag); font-weight: 600; }
+
+.kpi-strip {
+  display: flex;
+  gap: 1px;
+  background: var(--border);
+  padding: 1px;
+}
+.kpi-tile {
+  flex: 1;
+  background: var(--bg-elev-2);
+  padding: 16px 20px;
+  font-family: var(--mono);
+  text-align: left;
+}
+.kpi-tile.big { flex: 1.5; background: var(--bg-elev); }
+.kpi-tile .kpi-label {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  font-size: 10px;
+  margin-bottom: 6px;
+}
+.kpi-tile .kpi-num {
+  font-size: 26px;
+  font-weight: 300;
+  color: var(--text);
+}
+.kpi-tile.big .kpi-num { color: var(--ok); font-size: 32px; }
+
+.kpi-row {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 24px;
+  background: var(--bg-elev-2);
+}
+
+.kpi-label {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  width: 280px;
+}
+
+.kpi-bar {
+  flex: 1;
+  height: 14px;
+  background: var(--border-strong);
+  border-radius: 1px;
+  overflow: hidden;
+}
+
+.kpi-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--healthy), var(--ok));
+  transition: width 0.8s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.kpi-value {
+  width: 90px;
+  text-align: right;
+  font-family: var(--mono);
+  font-size: 28px;
+  font-weight: 300;
+  color: var(--ok);
+}
+
+.reduction-breakdown {
+  background: var(--bg-elev);
+  padding: 12px 24px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.reduction-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 4px 0;
+}
+
+.reduction-row > span:first-child {
+  width: 200px;
+  color: var(--text-dim);
+}
+
+.reduction-row .bar {
+  flex: 1;
+  height: 6px;
+  background: var(--border-strong);
+  overflow: hidden;
+}
+
+.reduction-row .fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  width: 0%;
+  transition: width 0.6s ease-out;
+}
+
+.reduction-row .value {
+  width: 60px;
+  text-align: right;
+  color: var(--text);
+}
+
+#ecology-chart {
+  width: 100%;
+  height: 200px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+
+.legend {
+  margin-top: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  display: flex;
+  gap: 16px;
+}
+
+.legend .dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background: var(--c, var(--accent));
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+.biophysics-readout {
+  display: grid;
+  grid-template-columns: max-content 1fr max-content 1fr;
+  gap: 8px 16px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.biophysics-readout .bio-value { color: var(--text); }
+
+.msg-panel { padding: 12px 24px; }
+
+#msg-stream {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  max-height: 280px;
+  overflow-y: auto;
+  background: var(--bg-elev-2);
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  white-space: pre;
+}
+
+#msg-stream .row { padding: 1px 0; }
+#msg-stream .row .ts { color: var(--text-faint); margin-right: 12px; }
+#msg-stream .row .who { color: var(--text); margin-right: 12px; }
+#msg-stream .row .kind { color: var(--accent); margin-right: 12px; }
+#msg-stream .row.warn .kind { color: var(--warn); }
+#msg-stream .row.flag .kind { color: var(--flag); }
+#msg-stream .row.ok .tag { color: var(--ok); }
+#msg-stream .row .tag {
+  display: inline-block;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-right: 10px;
+  color: var(--text-faint);
+}
+
+/* --- Collapsible panel (AGENT CONSTRAINTS, closed by default) --- */
+.panel.collapsible { padding: 0; }
+.panel.collapsible > summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 14px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  user-select: none;
+}
+.panel.collapsible > summary::-webkit-details-marker { display: none; }
+.panel.collapsible > summary h2 { margin: 0; }
+.panel.collapsible > summary .chev {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-faint);
+  transition: transform 0.15s ease;
+}
+.panel.collapsible[open] > summary .chev { transform: rotate(90deg); }
+.panel.collapsible > #agent-rows { padding: 0 24px 18px 24px; }
+
+/* Model-reference line attached to each agent row */
+.agent-row .model-ref {
+  flex: 1;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  text-align: left;
+  padding-left: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.agent-row .model-ref a { color: var(--text-faint); text-decoration: none; }
+.agent-row .model-ref a:hover { color: var(--accent); text-decoration: underline; }
+.agent-row .name { width: 150px; }
+
+/* Why-not-spray block embedded inside a flagged action card */
+.action-card .why-detail {
+  margin-top: 4px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-dim);
+  line-height: 1.55;
+  background: var(--bg-elev);
+  border-left: 2px solid var(--flag);
+  padding: 6px 10px;
+}
+.action-card .why-detail .num { color: var(--flag); font-weight: 600; }
+.action-card .why-detail .alt { color: var(--ok); font-weight: 600; }
+
+/* Subtle shadow lift for elevated panels in light mode */
+.panel { box-shadow: 0 1px 0 rgba(0,0,0,0.02); }
+.kpi-tile.big .kpi-num { color: var(--ok); }
+
+header { background: var(--bg-elev); }
