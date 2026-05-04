@@ -10,7 +10,7 @@ script exercises the full AG2 conversational path:
 
 Then it pulls the spatial evidence the agent stored on
 ``agent.evidence_maps`` (PlantEvidenceMaps per plant) and saves an
-overlay PNG via ``pulse.visual_explain.save_explanation``. Because those
+overlay PNG via ``pesto.visual_explain.save_explanation``. Because those
 masks are the same arrays whose pixel-counts produced the scalar
 log-likelihoods, the overlay is bit-exactly the evidence that drove the
 decision (Explanation === Evidence).
@@ -24,7 +24,7 @@ If --image is not provided, a synthetic chlorotic-leaf swatch is
 generated on the fly so the demo runs with no setup.
 
 No LLM API key is required — the OpenCV Evidence Agent is local
-code-only inference. (Skeptic + VLMReasoner elsewhere in Pulse do
+code-only inference. (Skeptic + VLMReasoner elsewhere in Pesto do
 require ANTHROPIC_API_KEY or OPENAI_API_KEY, loaded from .env.)
 """
 
@@ -36,7 +36,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-# Make ``pulse`` importable when this script is run directly, regardless of
+# Make ``pesto`` importable when this script is run directly, regardless of
 # whether the package was installed editable. ``python script.py`` puts the
 # script's own directory on sys.path[0]; the package lives one level up.
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -47,9 +47,9 @@ import numpy as np
 from autogen import UserProxyAgent
 from PIL import Image
 
-from pulse.agents.segmentation import SegmentationAgent
-from pulse.latent import CONDITION_LABELS, FieldLatentState, PlantInstance
-from pulse.visual_explain import save_explanation
+from pesto.agents.segmentation import SegmentationAgent
+from pesto.latent import CONDITION_LABELS, FieldLatentState, PlantInstance
+from pesto.visual_explain import save_explanation
 
 
 def _make_synthetic_image(out_path: Path, size: int = 256) -> None:
@@ -72,7 +72,7 @@ def _make_synthetic_image(out_path: Path, size: int = 256) -> None:
 def _build_latent(image_path: str) -> FieldLatentState:
     """Whole-image bbox so the agent inspects the entire frame.
 
-    Production pipelines call ``pulse.detection.detect_plants_yolo`` to
+    Production pipelines call ``pesto.detection.detect_plants_yolo`` to
     populate per-plant bboxes. This demo keeps the focus on the
     segmentation agent itself, not detection.
     """
@@ -156,7 +156,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"ERROR: image not found: {image_path}", file=sys.stderr)
             return 2
     else:
-        synthetic_dir = tempfile.TemporaryDirectory(prefix="pulse_demo_")
+        synthetic_dir = tempfile.TemporaryDirectory(prefix="pesto_demo_")
         synthetic_path = Path(synthetic_dir.name) / "chlorotic_swatch.jpg"
         _make_synthetic_image(synthetic_path)
         image_path = str(synthetic_path)

@@ -6,13 +6,13 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from pulse.agents.disease_classifier import (
+from pesto.agents.disease_classifier import (
     DiseaseClassifierAgent,
     class_to_condition,
     map_probs_to_conditions,
 )
-from pulse.latent import CONDITION_LABELS, FieldLatentState, PlantInstance
-from pulse.messages import ConstraintMessage
+from pesto.latent import CONDITION_LABELS, FieldLatentState, PlantInstance
+from pesto.messages import ConstraintMessage
 
 
 # --- Class → condition mapping ---------------------------------------------

@@ -6,11 +6,11 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from pulse.agents.anomaly_detector import (
+from pesto.agents.anomaly_detector import (
     AnomalyDetectorAgent,
     PatchCoreMemoryBank,
 )
-from pulse.latent import CONDITION_LABELS, FieldLatentState, PlantInstance
+from pesto.latent import CONDITION_LABELS, FieldLatentState, PlantInstance
 
 
 def _make_latent(n_plants: int = 2, shape=(200, 200)):
@@ -190,7 +190,7 @@ def test_agent_handles_no_image():
 
 def test_protocol_firewall_compliance():
     import dataclasses
-    from pulse.messages import ConstraintMessage
+    from pesto.messages import ConstraintMessage
 
     forbidden = {"text", "message", "prose", "explanation", "commentary",
                  "description", "narrative", "reasoning"}

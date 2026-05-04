@@ -5,13 +5,13 @@ from __future__ import annotations
 import numpy as np
 from PIL import Image
 
-from pulse.agents.growth_stage import (
+from pesto.agents.growth_stage import (
     GROWTH_STAGES,
     URGENCY_MULTIPLIER,
     GrowthStageAgent,
     GrowthStageClassifier,
 )
-from pulse.latent import CONDITION_LABELS, FieldLatentState, PlantInstance
+from pesto.latent import CONDITION_LABELS, FieldLatentState, PlantInstance
 
 
 def _make_latent(n_plants: int = 2, shape=(200, 200)):

@@ -1,4 +1,4 @@
-"""Pre-cache the HuggingFace models Pulse uses.
+"""Pre-cache the HuggingFace models Pesto uses.
 
 Run once before the demo so first-image latency doesn't include downloads.
 

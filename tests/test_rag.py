@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 import numpy as np
 
-from pulse.rag.retriever import AgronomicRAG, compute_rag_adjustment
+from pesto.rag.retriever import AgronomicRAG, compute_rag_adjustment
 
 
 @pytest.fixture

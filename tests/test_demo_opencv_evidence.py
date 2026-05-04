@@ -19,8 +19,8 @@ from pathlib import Path
 from autogen import UserProxyAgent
 from PIL import Image
 
-from pulse.agents.segmentation import PlantEvidenceMaps, SegmentationAgent
-from pulse.latent import FieldLatentState, PlantInstance
+from pesto.agents.segmentation import PlantEvidenceMaps, SegmentationAgent
+from pesto.latent import FieldLatentState, PlantInstance
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]

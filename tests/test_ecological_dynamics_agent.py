@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from pulse.agents.ecological_dynamics import EcologicalDynamicsAgent
-from pulse.biology.lotka_volterra import simulate_population_trajectory
+from pesto.agents.ecological_dynamics import EcologicalDynamicsAgent
+from pesto.biology.lotka_volterra import simulate_population_trajectory
 
 
 def test_no_intervention_stable_populations():

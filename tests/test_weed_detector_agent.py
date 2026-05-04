@@ -9,10 +9,10 @@ from __future__ import annotations
 
 import numpy as np
 
-from pulse.agents.weed_detector import WeedDetectorAgent
-from pulse.detection import detect_plants_yolo, extract_boxes
-from pulse.latent import CONDITION_LABELS, FieldLatentState, PlantInstance
-from pulse.messages import ConstraintMessage
+from pesto.agents.weed_detector import WeedDetectorAgent
+from pesto.detection import detect_plants_yolo, extract_boxes
+from pesto.latent import CONDITION_LABELS, FieldLatentState, PlantInstance
+from pesto.messages import ConstraintMessage
 
 
 # --- Fake YOLO model -------------------------------------------------------

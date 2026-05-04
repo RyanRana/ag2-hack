@@ -7,17 +7,17 @@ import time
 import numpy as np
 import pytest
 
-from pulse.agents.skeptic import SkepticAgent
-from pulse.cross_exam import (
+from pesto.agents.skeptic import SkepticAgent
+from pesto.cross_exam import (
     cross_examine,
     disputed_plants,
     dominant_axes_for_plant,
     max_disagreement_per_plant,
 )
-from pulse.cross_exam_groupchat import CrossExamGroupChat
-from pulse.latent import CONDITION_LABELS, FieldLatentState, PlantInstance
-from pulse.llm_config import LLMKeyMissingError  # noqa: F401 — kept for reference
-from pulse.messages import ConstraintMessage
+from pesto.cross_exam_groupchat import CrossExamGroupChat
+from pesto.latent import CONDITION_LABELS, FieldLatentState, PlantInstance
+from pesto.llm_config import LLMKeyMissingError  # noqa: F401 — kept for reference
+from pesto.messages import ConstraintMessage
 
 
 FAKE_LLM_CONFIG = {

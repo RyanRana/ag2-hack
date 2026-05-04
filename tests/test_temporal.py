@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 from PIL import Image
 
-from pulse.temporal import (
+from pesto.temporal import (
     PlantChangeScore,
     compute_frame_diff,
     compute_multi_frame_diff,

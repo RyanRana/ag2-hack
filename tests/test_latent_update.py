@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from pulse.latent import CONDITION_LABELS, FieldLatentState, PlantInstance
+from pesto.latent import CONDITION_LABELS, FieldLatentState, PlantInstance
 
 
 def _make_field(n_plants: int = 3) -> FieldLatentState:

@@ -1,10 +1,10 @@
-"""The firewall test. If this fails, Pulse has degraded into a chatbot."""
+"""The firewall test. If this fails, Pesto has degraded into a chatbot."""
 
 import dataclasses
 
 import numpy as np
 
-from pulse.messages import (
+from pesto.messages import (
     ActionMessage,
     ConstraintMessage,
     CrossExamMessage,

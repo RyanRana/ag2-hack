@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from pulse.agents.water_balance import WaterBalanceAgent
-from pulse.biophysics.water_balance import (
+from pesto.agents.water_balance import WaterBalanceAgent
+from pesto.biophysics.water_balance import (
     penman_monteith_et0,
     soil_water_potential,
     water_stress_index,
 )
-from pulse.latent import CONDITION_LABELS
+from pesto.latent import CONDITION_LABELS
 
 
 # --- Math sanity ---------------------------------------------------------

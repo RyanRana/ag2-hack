@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from pulse.calibration import (
+from pesto.calibration import (
     apply_temperature,
     learn_temperature,
     load_temperature,

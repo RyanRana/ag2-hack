@@ -6,13 +6,13 @@ import json
 
 import numpy as np
 
-from pulse.agents.skeptic import (
+from pesto.agents.skeptic import (
     MAX_DEBATE_TURNS,
     SkepticAgent,
 )
-from pulse.latent import CONDITION_LABELS
-from pulse.local_model import LocalModelBackend
-from pulse.messages import CrossExamMessage
+from pesto.latent import CONDITION_LABELS
+from pesto.local_model import LocalModelBackend
+from pesto.messages import CrossExamMessage
 
 
 def _make_cross_exam_msgs(disputed_ids: list[int]) -> list[CrossExamMessage]:

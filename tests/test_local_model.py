@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 import numpy as np
 from PIL import Image
 
-from pulse.local_model import LocalModelBackend, parse_structured_output
+from pesto.local_model import LocalModelBackend, parse_structured_output
 
 
 # --- parse_structured_output tests ---

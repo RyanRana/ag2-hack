@@ -5,8 +5,8 @@ from __future__ import annotations
 import numpy as np
 from PIL import Image
 
-from pulse.agents.health_classifier import HealthClassifierAgent, _split_health_mass
-from pulse.latent import CONDITION_LABELS, FieldLatentState, PlantInstance
+from pesto.agents.health_classifier import HealthClassifierAgent, _split_health_mass
+from pesto.latent import CONDITION_LABELS, FieldLatentState, PlantInstance
 
 
 def test_split_health_mass_healthy_dominant():

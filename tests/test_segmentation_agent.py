@@ -5,8 +5,8 @@ from __future__ import annotations
 import numpy as np
 from PIL import Image
 
-from pulse.agents.segmentation import SegmentationAgent
-from pulse.latent import CONDITION_LABELS, FieldLatentState, PlantInstance
+from pesto.agents.segmentation import SegmentationAgent
+from pesto.latent import CONDITION_LABELS, FieldLatentState, PlantInstance
 
 
 def _make_latent(boxes, shape=(480, 640)):

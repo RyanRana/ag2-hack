@@ -1,4 +1,4 @@
-"""Pulse demo runner — Phase 2 minimum.
+"""Pesto demo runner — Phase 2 minimum.
 
 Detects plants in a field image, runs the WeedDetectorAgent, applies its
 constraint to the FieldLatentState, and prints the resulting per-plant
@@ -15,12 +15,12 @@ import argparse
 import json
 import sys
 
-from pulse.agents.weed_detector import WeedDetectorAgent
-from pulse.detection import detect_plants_yolo
+from pesto.agents.weed_detector import WeedDetectorAgent
+from pesto.detection import detect_plants_yolo
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Run Pulse precision-ag inference.")
+    parser = argparse.ArgumentParser(description="Run Pesto precision-ag inference.")
     parser.add_argument("image", help="Path to a field image (JPG/PNG)")
     parser.add_argument(
         "--max-plants",

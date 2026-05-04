@@ -1,7 +1,7 @@
 [project]
-name = "pulse"
+name = "pesto"
 version = "0.1.0"
-description = "Multi-agent inference engine for precision agriculture (AG2)"
+description = "Multi-agent inference SDK for precision agriculture (AG2)"
 requires-python = ">=3.10,<3.13"
 dependencies = [
     # Multi-agent runtime
@@ -46,12 +46,15 @@ dependencies = [
     "pytest-asyncio>=0.23",
 ]
 
+[project.scripts]
+pesto = "pesto.cli:main"
+
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["pulse*"]
+include = ["pesto*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

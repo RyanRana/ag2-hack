@@ -12,8 +12,8 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from pulse.agents.vlm_reasoner import VLMReasonerAgent, _default_image_analyzer
-from pulse.llm_config import LLMKeyMissingError
+from pesto.agents.vlm_reasoner import VLMReasonerAgent, _default_image_analyzer
+from pesto.llm_config import LLMKeyMissingError
 
 
 FAKE_LLM_CONFIG = {

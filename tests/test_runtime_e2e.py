@@ -10,13 +10,13 @@ import time
 
 import numpy as np
 
-from pulse.agents.controller import EIGControllerAgent
-from pulse.agents.ecological_dynamics import EcologicalDynamicsAgent
-from pulse.agents.pesticide_fate import PesticideFateAgent
-from pulse.agents.water_balance import WaterBalanceAgent
-from pulse.captain import PulseCaptain
-from pulse.latent import CONDITION_LABELS, FieldLatentState, INTERVENTION_TYPES, PlantInstance
-from pulse.messages import ConstraintMessage
+from pesto.agents.controller import EIGControllerAgent
+from pesto.agents.ecological_dynamics import EcologicalDynamicsAgent
+from pesto.agents.pesticide_fate import PesticideFateAgent
+from pesto.agents.water_balance import WaterBalanceAgent
+from pesto.captain import PestoCaptain
+from pesto.latent import CONDITION_LABELS, FieldLatentState, INTERVENTION_TYPES, PlantInstance
+from pesto.messages import ConstraintMessage
 
 
 # --- Stub ML agents -------------------------------------------------------
@@ -170,7 +170,7 @@ def _make_latent(plants_bboxes):
     return f
 
 
-class _PreSeededCaptain(PulseCaptain):
+class _PreSeededCaptain(PestoCaptain):
     """Captain wired to a pre-seeded latent (no real YOLO needed)."""
 
     def __init__(self, *, ml_agents, latent: FieldLatentState, **kwargs) -> None:

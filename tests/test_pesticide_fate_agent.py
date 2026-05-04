@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from pulse.agents.pesticide_fate import PesticideFateAgent
-from pulse.physics.drift import (
+from pesto.agents.pesticide_fate import PesticideFateAgent
+from pesto.physics.drift import (
     deposition_at_locations,
     gaussian_plume_concentration,
     soil_persistence_curve,

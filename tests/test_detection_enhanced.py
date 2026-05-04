@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pulse.detection import _compute_iou, merge_detections
+from pesto.detection import _compute_iou, merge_detections
 
 
 def _yolo_box(x1, y1, x2, y2, conf=0.9, name="plant"):

@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from pulse.backbone import DINOv2Backbone
+from pesto.backbone import DINOv2Backbone
 
 
 def _make_mock_outputs(n_patches: int = 1369, dim: int = 768, n_heads: int = 12):

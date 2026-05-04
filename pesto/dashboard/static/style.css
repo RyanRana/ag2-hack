@@ -1,0 +1,704 @@
+/* ----------------------------------------------------------------------
+ * Pesto dashboard — runtime-injected class styles.
+ *
+ * The page chrome (header, panels, KPI strip, message stream container) is
+ * styled with Tailwind utilities directly in index.html. The rules below
+ * cover everything that app.js injects at runtime — bbox overlays, agent
+ * rows, intervention bars, action cards, etc. — and ride on the shadcn
+ * theme tokens (--primary, --background, --destructive, …) so the dark/
+ * light toggle just works.
+ * ---------------------------------------------------------------------- */
+
+/* Domain colors — kept as fixed hues so weed/disease/water/healthy reads
+ * the same in either theme (these are diagnostic semantics, not chrome). */
+:root {
+  --pesto-weed:      #d35f9c;
+  --pesto-disease:   #d39c5f;
+  --pesto-water:     #5fc8d3;
+  --pesto-nutrient:  #c8c85a;
+  --pesto-pest:      #b35fd3;
+  --pesto-healthy:   #82c85a;
+  --pesto-ambiguous: #a8a29e;
+  --pesto-flag:      var(--destructive);
+  --pesto-warn:      #d39c5f;
+  --pesto-ok:        #82c85a;
+  /* Fixed text colors for use on the bright fixed-hue badges above —
+   * stay constant in both themes since the badge backgrounds don't flip. */
+  --pesto-ink:       oklch(0.2046 0 0);
+  --pesto-paper:     oklch(0.9911 0 0);
+  --pesto-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+/* ===========================
+   GLOBALS
+   =========================== */
+
+* { box-sizing: border-box; }
+
+.text-dim { color: var(--muted-foreground); }
+.warn     { color: var(--pesto-warn); }
+.num      { color: var(--primary); font-weight: 600; }
+.alt      { color: var(--pesto-ok); font-weight: 500; }
+
+#conn-state.live::before {
+  content: "●";
+  color: var(--pesto-ok);
+  margin-right: 8px;
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.4; transform: scale(0.8); }
+}
+
+/* Subtle scrollbar */
+.custom-scroll::-webkit-scrollbar,
+#msg-stream::-webkit-scrollbar { width: 8px; height: 8px; }
+.custom-scroll::-webkit-scrollbar-thumb,
+#msg-stream::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+.custom-scroll::-webkit-scrollbar-thumb:hover,
+#msg-stream::-webkit-scrollbar-thumb:hover { background: var(--muted-foreground); }
+
+/* ===========================
+   FIELD CANVAS / OVERLAYS
+   =========================== */
+
+.field-canvas-wrap {
+  position: relative;
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
+  background: var(--muted);
+  overflow: hidden;
+  min-height: 360px;
+}
+
+#field-video {
+  width: 100%;
+  height: auto;
+  display: block;
+  background: var(--muted);
+  filter: saturate(1.12) contrast(1.04);
+}
+
+.heatmap-canvas {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  width: 100%;
+  height: 100%;
+  filter: blur(1px);
+  opacity: 0.85;
+  animation: heat-pulse 2.6s ease-in-out infinite;
+}
+@keyframes heat-pulse {
+  0%, 100% { opacity: 0.78; }
+  50%      { opacity: 0.95; }
+}
+
+.drift-canvas {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  width: 100%;
+  height: 100%;
+  mix-blend-mode: screen;
+}
+
+.bbox-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.bbox-overlay {
+  position: absolute;
+  border: 3px solid currentColor;
+  pointer-events: none;
+  border-radius: 3px;
+  transition: border-color 0.3s, box-shadow 0.3s;
+  box-shadow: 0 0 6px rgba(0,0,0,0.6), 0 0 2px currentColor;
+  background: color-mix(in srgb, currentColor 8%, transparent);
+}
+.bbox-overlay.disputed {
+  border-width: 3px;
+  animation: dispute-pulse 1.4s ease-in-out infinite;
+}
+.bbox-overlay.physics-veto {
+  border-color: var(--pesto-flag);
+  border-style: dashed;
+  border-width: 3px;
+  box-shadow: 0 0 18px var(--pesto-flag);
+}
+@keyframes dispute-pulse {
+  0%, 100% { box-shadow: 0 0 6px currentColor; }
+  50%      { box-shadow: 0 0 24px currentColor; }
+}
+
+.bbox-label {
+  position: absolute;
+  background: color-mix(in oklab, var(--background) 92%, transparent);
+  backdrop-filter: blur(8px);
+  color: currentColor;
+  padding: 3px 8px;
+  font-family: var(--pesto-mono);
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translateY(-100%);
+  margin-top: -4px;
+}
+.bbox-label .species {
+  display: inline-block;
+  padding: 0 5px;
+  margin-right: 4px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  border-radius: 3px;
+  background: var(--foreground);
+  color: var(--background);
+}
+.bbox-label .species.weed { background: var(--pesto-weed); color: var(--pesto-paper); }
+.bbox-label .species.crop { background: var(--pesto-healthy); color: var(--pesto-ink); }
+
+.bbox-label .action-pill {
+  display: inline-block;
+  padding: 1px 5px;
+  margin-left: 4px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  border-radius: 3px;
+  background: var(--foreground);
+  color: var(--background);
+}
+.bbox-label .action-pill.weed    { background: var(--pesto-weed); color: var(--pesto-paper); }
+.bbox-label .action-pill.disease { background: var(--pesto-disease); color: var(--pesto-ink); }
+.bbox-label .action-pill.water   { background: var(--pesto-water); color: var(--pesto-ink); }
+.bbox-label .action-pill.nutrient{ background: var(--pesto-nutrient); color: var(--pesto-ink); }
+.bbox-label .action-pill.healthy { background: var(--pesto-healthy); color: var(--pesto-ink); }
+.bbox-label .action-pill.review  { background: var(--pesto-ambiguous); color: var(--pesto-paper); }
+
+.wind-indicator .arrow {
+  transform-origin: center;
+  transition: transform 0.5s ease;
+}
+
+/* ===========================
+   AGENT ROWS
+   =========================== */
+
+.agent-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  font-family: var(--pesto-mono);
+  font-size: 12px;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+}
+.agent-row:last-child { border: 0; }
+.agent-row .name      { width: 145px; color: var(--foreground); font-weight: 500; }
+.agent-row .paradigm  {
+  width: 70px;
+  font-size: 9px;
+  color: var(--muted-foreground);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  text-align: center;
+}
+.agent-row .model-ref {
+  flex: 1;
+  font-size: 9.5px;
+  color: var(--muted-foreground);
+  text-align: left;
+  padding-left: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.agent-row .model-ref a { color: var(--muted-foreground); text-decoration: none; }
+.agent-row .model-ref a:hover { color: var(--primary); text-decoration: underline; }
+.agent-row .status {
+  margin-left: auto;
+  font-size: 14px;
+  width: 18px;
+  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.agent-row .status i { font-size: 13px; line-height: 1; }
+.agent-row .status.running i { font-size: 8px; } /* small filled dot */
+.agent-row .status.ok      { color: var(--pesto-ok); }
+.agent-row .status.pending { color: var(--muted-foreground); opacity: 0.5; }
+.agent-row .status.running { color: var(--primary); animation: pulse-dot 1.2s ease-in-out infinite; }
+.agent-row .status.skipped { color: var(--muted-foreground); opacity: 0.4; }
+.agent-row .status.fail    { color: var(--pesto-flag); }
+
+/* ===========================
+   INTERVENTION BARS
+   =========================== */
+
+.interv-row {
+  display: flex;
+  align-items: center;
+  padding: 7px 0;
+  font-family: var(--pesto-mono);
+  font-size: 12px;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+}
+.interv-row:last-child { border: 0; }
+.interv-row .label    { flex: 0 0 160px; color: var(--foreground); }
+.interv-row .bar      {
+  flex: 1;
+  height: 6px;
+  background: var(--muted);
+  margin: 0 12px;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.interv-row .bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary), color-mix(in oklab, var(--primary) 70%, var(--chart-2)));
+  border-radius: 3px;
+  transition: width 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.interv-row .count {
+  width: 36px;
+  text-align: right;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ===========================
+   RECOMMENDED ACTIONS
+   =========================== */
+
+.actions-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.actions-summary .actions-empty {
+  color: var(--muted-foreground);
+  font-style: italic;
+  padding: 14px 18px;
+  font-family: var(--pesto-mono);
+  font-size: 12px;
+}
+
+/* This-frame mini summary */
+.last-frame-strip {
+  background: color-mix(in oklab, var(--muted) 70%, transparent);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--primary);
+  border-radius: var(--radius);
+  margin-bottom: 6px;
+  padding: 10px 14px;
+}
+.mini-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.mini-pill {
+  padding: 3px 10px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-family: var(--pesto-mono);
+  font-size: 11px;
+  color: var(--foreground);
+  font-variant-numeric: tabular-nums;
+}
+.mini-pill.weed     { border-color: color-mix(in oklab, var(--pesto-weed) 50%, var(--border));    color: var(--pesto-weed); }
+.mini-pill.disease  { border-color: color-mix(in oklab, var(--pesto-disease) 50%, var(--border)); color: var(--pesto-disease); }
+.mini-pill.water    { border-color: color-mix(in oklab, var(--pesto-water) 50%, var(--border));   color: var(--pesto-water); }
+.mini-pill.healthy  { border-color: color-mix(in oklab, var(--pesto-healthy) 50%, var(--border)); color: var(--pesto-healthy); }
+.mini-pill.review   { border-color: color-mix(in oklab, var(--pesto-warn) 50%, var(--border));    color: var(--pesto-warn); }
+.mini-pill.nutrient { border-color: color-mix(in oklab, var(--pesto-nutrient) 50%, var(--border)); color: var(--pesto-nutrient); }
+
+.actions-section-title {
+  font-family: var(--pesto-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 10px;
+  color: var(--muted-foreground);
+  padding: 8px 4px 6px;
+  margin-top: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.actions-section-title.flagged { color: var(--pesto-warn); margin-top: 12px; }
+
+/* Action cards */
+.actions-summary .action-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  background: color-mix(in oklab, var(--muted) 50%, transparent);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--primary);
+  border-radius: var(--radius);
+  font-family: var(--pesto-mono);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.15s;
+}
+.actions-summary .action-card:hover {
+  background: color-mix(in oklab, var(--muted) 80%, transparent);
+  transform: translateX(2px);
+}
+.actions-summary .action-card .icon {
+  font-size: 22px;
+  width: 30px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.actions-summary .action-card .copy { flex: 1; min-width: 0; }
+.actions-summary .action-card .copy .head {
+  color: var(--foreground);
+  font-weight: 500;
+  font-size: 12.5px;
+  margin-bottom: 3px;
+}
+.actions-summary .action-card .copy .why {
+  color: var(--muted-foreground);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.actions-summary .action-card .count {
+  color: var(--foreground);
+  font-size: 18px;
+  font-weight: 600;
+  text-align: right;
+  min-width: 40px;
+  font-variant-numeric: tabular-nums;
+}
+.actions-summary .action-card .snap {
+  width: 64px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+/* Per-category accent */
+.actions-summary .action-card.weed     { border-left-color: var(--pesto-weed); }
+.actions-summary .action-card.disease  { border-left-color: var(--pesto-disease); }
+.actions-summary .action-card.water    { border-left-color: var(--pesto-water); }
+.actions-summary .action-card.nutrient { border-left-color: var(--pesto-nutrient); }
+.actions-summary .action-card.pest     { border-left-color: var(--pesto-pest); }
+.actions-summary .action-card.healthy  { border-left-color: var(--pesto-healthy); }
+.actions-summary .action-card.review   { border-left-color: var(--pesto-warn); }
+.actions-summary .action-card.veto {
+  border-left-color: var(--pesto-flag);
+  background: color-mix(in oklab, var(--pesto-flag) 8%, var(--muted));
+  box-shadow: inset 4px 0 16px -4px var(--pesto-flag);
+}
+
+/* Embedded "why not spray" detail */
+.action-card .why-detail {
+  margin-top: 6px;
+  font-family: var(--pesto-mono);
+  font-size: 10.5px;
+  color: var(--muted-foreground);
+  line-height: 1.55;
+  background: color-mix(in oklab, var(--card) 80%, transparent);
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--pesto-flag);
+  padding: 8px 10px;
+  border-radius: 4px;
+}
+.action-card .why-detail b   { color: var(--foreground); }
+.action-card .why-detail .num { color: var(--pesto-flag); font-weight: 600; }
+.action-card .why-detail .alt { color: var(--pesto-ok); font-weight: 600; }
+
+/* ===========================
+   KPI STRIP — extra polish
+   =========================== */
+
+.kpi-tile { transition: background 0.2s; }
+.kpi-tile:hover { background: color-mix(in oklab, var(--card) 92%, var(--primary)); }
+.kpi-tile.big::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at 100% 0%, color-mix(in oklab, var(--primary) 15%, transparent), transparent 60%);
+}
+.kpi-tile .kpi-num .unit {
+  font-size: 13px;
+  color: var(--muted-foreground);
+  margin-left: 4px;
+  font-weight: 400;
+}
+
+/* ===========================
+   STREAM BUTTON STATES
+   =========================== */
+
+#stream-btn.streaming {
+  background: var(--pesto-flag);
+  color: var(--destructive-foreground);
+  box-shadow: 0 0 0 0 color-mix(in oklab, var(--pesto-flag) 60%, transparent);
+  animation: streaming-pulse 1.6s ease-in-out infinite;
+}
+@keyframes streaming-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--pesto-flag) 50%, transparent); }
+  50%      { box-shadow: 0 0 0 6px color-mix(in oklab, var(--pesto-flag) 0%, transparent); }
+}
+
+/* ===========================
+   MESSAGE STREAM
+   =========================== */
+
+#msg-stream { white-space: pre-wrap; }
+#msg-stream .row {
+  padding: 2px 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  border-bottom: 1px dashed color-mix(in oklab, var(--border) 50%, transparent);
+}
+#msg-stream .row:last-child { border-bottom: 0; }
+#msg-stream .row .ts {
+  color: var(--muted-foreground);
+  opacity: 0.6;
+  font-size: 10.5px;
+  flex-shrink: 0;
+}
+#msg-stream .row .tag {
+  display: inline-block;
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  color: var(--muted-foreground);
+  flex-shrink: 0;
+  font-weight: 600;
+}
+#msg-stream .row.ok   .tag { color: var(--pesto-ok);   border-color: color-mix(in oklab, var(--pesto-ok) 40%, var(--border)); }
+#msg-stream .row.warn .tag { color: var(--pesto-warn); border-color: color-mix(in oklab, var(--pesto-warn) 40%, var(--border)); }
+#msg-stream .row.flag .tag { color: var(--pesto-flag); border-color: color-mix(in oklab, var(--pesto-flag) 40%, var(--border)); background: color-mix(in oklab, var(--pesto-flag) 10%, transparent); }
+#msg-stream .row.warn { background: color-mix(in oklab, var(--pesto-warn) 5%, transparent); }
+#msg-stream .row.flag { background: color-mix(in oklab, var(--pesto-flag) 7%, transparent); }
+#msg-stream .row b { color: var(--foreground); font-weight: 600; }
+
+/* ===========================
+   MISC LEGACY (kept for safety)
+   =========================== */
+
+.legend { display: flex; gap: 16px; font-family: var(--pesto-mono); font-size: 11px; color: var(--muted-foreground); margin-top: 8px; }
+.legend .dot { display: inline-block; width: 8px; height: 8px; background: var(--c, var(--primary)); margin-right: 6px; vertical-align: middle; border-radius: 999px; }
+
+/* Side-data scroll on tall screens */
+@media (min-width: 1024px) {
+  .side-data { max-height: calc(100vh - 84px); overflow-y: auto; padding-right: 2px; }
+}
+
+/* ===========================
+   PHOSPHOR ICON ALIGNMENT
+   =========================== */
+
+/* Make icons inherit color and align with adjacent text.
+   Wrapped in :where() so specificity stays 0 — Tailwind's `.hidden`
+   utility (display: none) still wins over this baseline. */
+:where(i[class*="ph-"], i[class^="ph"]) {
+  display: inline-block;
+  font-style: normal;
+  line-height: 1;
+  vertical-align: -0.125em;
+  color: inherit;
+}
+
+/* Action card icon column — big, centered, primary tint via inherit */
+.actions-summary .action-card > .icon i { font-size: 22px; line-height: 1; }
+
+/* Mini-pills — slightly smaller inline icon with a hair of right margin */
+.mini-pill i { font-size: 12px; margin-right: 4px; vertical-align: -0.15em; }
+
+/* Section title icons (flagged, this-frame) */
+.actions-section-title i { font-size: 12px; margin-right: 4px; vertical-align: -0.1em; }
+
+/* Stream button keeps the primary-foreground color via inherit */
+#stream-btn i { color: inherit; }
+
+/* Theme toggle — show one icon at a time. Scoped via #theme-toggle so
+   specificity beats Phosphor's `.ph { display: inline-block }`. */
+#theme-toggle .theme-icon-light { display: none; }
+#theme-toggle .theme-icon-dark  { display: inline-block; }
+html:not(.dark) #theme-toggle .theme-icon-dark  { display: none; }
+html:not(.dark) #theme-toggle .theme-icon-light { display: inline-block; }
+
+/* Wind arrow rotates via JS — keep transform origin centered */
+#wind-arrow { transform-origin: center; transition: transform 0.5s ease; }
+
+/* Message stream inline icons inherit row color */
+#msg-stream .row i { vertical-align: -0.12em; margin-right: 2px; }
+
+/* ===========================
+   SPRINT 1-4 UI EXTENSIONS
+   =========================== */
+
+/* --- Visual explanation overlay (Sprint 1) --- */
+.explain-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  opacity: 0.55;
+  mix-blend-mode: screen;
+  transition: opacity 0.3s;
+  z-index: 2;
+}
+html:not(.dark) .explain-overlay { mix-blend-mode: multiply; opacity: 0.5; }
+#explain-toggle { opacity: 0.5; transition: opacity 0.2s; }
+#explain-toggle.active { opacity: 1; }
+
+/* --- Temporal change highlight (Sprint 4) --- */
+.bbox-overlay.temporal-changed {
+  border-style: dashed !important;
+  border-color: #ff8c00 !important;
+  animation: temporal-pulse 1.0s ease-in-out infinite;
+}
+@keyframes temporal-pulse {
+  0%, 100% { box-shadow: 0 0 6px rgba(255,140,0,0.5); }
+  50%      { box-shadow: 0 0 20px rgba(255,140,0,0.8); }
+}
+
+/* --- Bbox label badges (Sprint 2/4) --- */
+.bbox-label .anomaly-badge {
+  display: inline-block;
+  padding: 0 4px;
+  margin-left: 3px;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  border-radius: 3px;
+  background: var(--destructive);
+  color: var(--destructive-foreground);
+  text-transform: uppercase;
+}
+.bbox-label .growth-badge {
+  display: inline-block;
+  padding: 0 4px;
+  margin-left: 3px;
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  border-radius: 3px;
+  background: color-mix(in oklab, var(--muted) 80%, transparent);
+  color: var(--foreground);
+  border: 1px solid var(--border);
+}
+
+/* --- Agent row mode badge (Sprint 3) --- */
+.agent-row .mode-badge {
+  font-size: 8px;
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: 3px;
+  letter-spacing: 0.06em;
+  margin-left: 4px;
+  text-transform: uppercase;
+}
+.agent-row .mode-badge.local {
+  background: var(--pesto-ok);
+  color: var(--pesto-ink);
+}
+.agent-row .mode-badge.api {
+  background: var(--chart-2, #6366f1);
+  color: var(--pesto-paper);
+}
+
+/* --- Debate indicator (Sprint 3) --- */
+#debate-indicator {
+  font-family: var(--pesto-mono, ui-monospace, monospace);
+  font-size: 10px;
+  color: var(--muted-foreground);
+  padding: 6px 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.turn-dots {
+  display: inline-flex;
+  gap: 4px;
+}
+.turn-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--border);
+  transition: background 0.3s;
+}
+.turn-dot.active { background: var(--primary); }
+.turn-dot.done   { background: var(--pesto-ok); }
+
+/* --- Weather / RAG / Growth panels --- */
+.weather-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 0;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 40%, transparent);
+}
+.weather-row:last-child { border-bottom: 0; }
+.weather-row .weather-label { color: var(--muted-foreground); }
+.weather-row .weather-value { font-weight: 500; color: var(--foreground); }
+
+.rag-doc {
+  padding: 6px 0;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 40%, transparent);
+}
+.rag-doc:last-child { border-bottom: 0; }
+.rag-doc-title { color: var(--foreground); font-weight: 500; margin-bottom: 2px; }
+.rag-doc-score { color: var(--primary); font-size: 9px; }
+.rag-doc-text  { color: var(--muted-foreground); font-size: 10px; line-height: 1.4; }
+.rag-doc-tags  { color: var(--muted-foreground); font-size: 9px; margin-top: 2px; }
+
+/* --- Active learning badge in KPI --- */
+.kpi-tile.al-tile .kpi-num { color: var(--chart-2, #6366f1); }
+
+/* --- Preview button in action cards --- */
+/* --- Filter pills --- */
+.filter-pill {
+  cursor: pointer;
+  opacity: 0.5;
+  transition: opacity 0.2s, border-color 0.2s;
+  border: 1px solid transparent;
+}
+.filter-pill:hover { opacity: 0.8; }
+.filter-pill.active {
+  opacity: 1;
+  border-color: currentColor;
+}
+
+.preview-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--muted);
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+.preview-btn:hover {
+  background: var(--primary);
+  color: var(--primary-foreground);
+  border-color: var(--primary);
+}
+.preview-btn i { font-size: 14px; }

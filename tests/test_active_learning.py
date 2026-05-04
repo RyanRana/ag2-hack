@@ -5,9 +5,9 @@ from __future__ import annotations
 import numpy as np
 from PIL import Image
 
-from pulse.active_learning import ActiveLearningManager
-from pulse.latent import CONDITION_LABELS, FieldLatentState, PlantInstance
-from pulse.messages import ActionMessage
+from pesto.active_learning import ActiveLearningManager
+from pesto.latent import CONDITION_LABELS, FieldLatentState, PlantInstance
+from pesto.messages import ActionMessage
 
 
 def _make_latent(n_plants=3):

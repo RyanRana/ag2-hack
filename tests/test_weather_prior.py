@@ -6,12 +6,12 @@ from unittest.mock import patch
 
 import numpy as np
 
-from pulse.agents.weather_prior import (
+from pesto.agents.weather_prior import (
     WeatherPriorAgent,
     compute_priors_from_field_state,
     compute_weather_priors,
 )
-from pulse.latent import CONDITION_LABELS, FieldLatentState, PlantInstance
+from pesto.latent import CONDITION_LABELS, FieldLatentState, PlantInstance
 
 
 def _make_latent(n_plants: int = 3) -> FieldLatentState:
@@ -142,7 +142,7 @@ def test_fallback_priors_from_field_state():
 def test_protocol_firewall_compliance():
     """WeatherPriorAgent ConstraintMessage must have no prose fields."""
     import dataclasses
-    from pulse.messages import ConstraintMessage
+    from pesto.messages import ConstraintMessage
 
     forbidden = {"text", "message", "prose", "explanation", "commentary",
                  "description", "narrative", "reasoning"}
